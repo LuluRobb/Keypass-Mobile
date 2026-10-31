@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Name of the service in the Android autofill settings. -->
+    <string name="autofill_service_label">KeyPass Mobile (Prototyp)</string>
+    <!-- The one suggestion shown in the keyboard or below the field (AF-02). -->
+    <string name="autofill_suggestion_title">KeyPass Mobile</string>
+    <string name="autofill_suggestion_description">KeyPass Mobile: Eintrag auswählen</string>
+    <string name="autofill_select_label">KeyPass Mobile</string>
+</resources>

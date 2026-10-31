@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<!-- Content with KDBX 4.1 features (group tags, QualityCheck, PreviousParentGroup,
+     named custom icon) plus tags, additional URLs (KP2A_URL*), notes and custom
+     fields. Imported with keepassxc-cli by create-testdbs.ps1. Test data only. -->
+<KeePassFile>
+	<Meta>
+		<Generator>kpm-testdata</Generator>
+		<DatabaseName>KPM Test KDBX 4.1</DatabaseName>
+		<CustomIcons>
+			<Icon>
+				<UUID>AAAAAAAAAAAAAAAAAAAAIA==</UUID>
+				<Data>iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==</Data>
+				<Name>Testsymbol</Name>
+				<LastModificationTime>2026-10-30T12:00:00Z</LastModificationTime>
+			</Icon>
+		</CustomIcons>
+	</Meta>
+	<Root>
+		<Group>
+			<UUID>AAAAAAAAAAAAAAAAAAAAAQ==</UUID>
+			<Name>Root</Name>
+			<Group>
+				<UUID>AAAAAAAAAAAAAAAAAAAAAw==</UUID>
+				<Name>Einkaufen</Name>
+				<Tags>Gruppen-Tag</Tags>
+				<PreviousParentGroup>AAAAAAAAAAAAAAAAAAAAAQ==</PreviousParentGroup>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAMA==</UUID>
+					<CustomIconUUID>AAAAAAAAAAAAAAAAAAAAIA==</CustomIconUUID>
+					<Tags>Einkauf;Wichtig;Größe</Tags>
+					<QualityCheck>False</QualityCheck>
+					<PreviousParentGroup>AAAAAAAAAAAAAAAAAAAAAQ==</PreviousParentGroup>
+					<String><Key>Title</Key><Value>Online-Shop</Value></String>
+					<String><Key>UserName</Key><Value>kunde@example.com</Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True">shop-Geheim-123</Value></String>
+					<String><Key>URL</Key><Value>https://shop.example.com/login</Value></String>
+					<String><Key>Notes</Key><Value>Erste Zeile
+Zweite Zeile mit Umlauten: äöü ÄÖÜ ß</Value></String>
+					<String><Key>KP2A_URL</Key><Value>https://m.shop.example.com</Value></String>
+					<String><Key>KP2A_URL_1</Key><Value>https://shop.example.de</Value></String>
+					<String><Key>Kundennummer</Key><Value>K-4711</Value></String>
+					<String><Key>PIN</Key><Value ProtectInMemory="True">1234</Value></String>
+					<CustomData>
+						<Item>
+							<Key>KPM_TEST</Key>
+							<Value>1</Value>
+						</Item>
+					</CustomData>
+				</Entry>
+			</Group>
+			<Entry>
+				<UUID>AAAAAAAAAAAAAAAAAAAAMQ==</UUID>
+				<String><Key>Title</Key><Value>Nur Benutzername</Value></String>
+				<String><Key>UserName</Key><Value>nur-user</Value></String>
+				<String><Key>Password</Key><Value ProtectInMemory="True"></Value></String>
+				<String><Key>URL</Key><Value></Value></String>
+				<String><Key>Notes</Key><Value></Value></String>
+			</Entry>
+			<Entry>
+				<UUID>AAAAAAAAAAAAAAAAAAAAMg==</UUID>
+				<Tags>Privat</Tags>
+				<String><Key>Title</Key><Value>Router</Value></String>
+				<String><Key>UserName</Key><Value>admin</Value></String>
+				<String><Key>Password</Key><Value ProtectInMemory="True">router-Test-7</Value></String>
+				<String><Key>URL</Key><Value>http://192.168.178.1</Value></String>
+				<String><Key>Notes</Key><Value>Nur im Heimnetz erreichbar</Value></String>
+			</Entry>
+		</Group>
+	</Root>
+</KeePassFile>

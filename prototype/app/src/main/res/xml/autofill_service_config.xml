@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- supportsInlineSuggestions is required, otherwise the system never passes an
+     InlineSuggestionsRequest and the suggestion only appears as a dropdown.
+     No compatibility-package entries: Brave and Chrome use their native
+     autofill support ("Autofill using another service"). -->
+<autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="de.reitano.keypassmobile.prototype.MainActivity"
+    android:supportsInlineSuggestions="true" />

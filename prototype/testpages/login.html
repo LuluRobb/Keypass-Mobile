@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KPM Autofill-Testseite</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; max-width: 480px; }
+  form { border: 1px solid #999; padding: 12px; margin-bottom: 24px; }
+  label { display: block; margin-top: 8px; }
+  input { font-size: 16px; width: 100%; box-sizing: border-box; padding: 6px; }
+  button { margin-top: 12px; font-size: 16px; }
+  .result { margin-top: 8px; font-family: monospace; }
+</style>
+</head>
+<body>
+<h1>Autofill-Testseite</h1>
+<p>Testdaten für den KeyPass-Mobile-Prototyp. Nichts wird gesendet oder gespeichert.
+Passender Eintrag im Emulator: "Testseite Emulator" (10.0.2.2), über adb reverse: "Testseite localhost".</p>
+
+<!-- Variant A: standard login form with autocomplete attributes. -->
+<form id="form-a" action="#" method="post" autocomplete="on">
+  <h2>A: mit autocomplete</h2>
+  <label for="a-user">Benutzername</label>
+  <input id="a-user" name="username" type="text" autocomplete="username">
+  <label for="a-pass">Passwort</label>
+  <input id="a-pass" name="password" type="password" autocomplete="current-password">
+  <button type="submit">Prüfen</button>
+  <div class="result" id="a-result"></div>
+</form>
+
+<!-- Variant B: no autocomplete attributes and neutral names. Only type=password
+     is left, so the username field has to be found by the heuristic (text
+     field in front of the password field). -->
+<form id="form-b" action="#" method="post">
+  <h2>B: ohne autocomplete</h2>
+  <label for="b-f1">Feld 1</label>
+  <input id="b-f1" name="f1" type="text">
+  <label for="b-f2">Feld 2</label>
+  <input id="b-f2" name="f2" type="password">
+  <button type="submit">Prüfen</button>
+  <div class="result" id="b-result"></div>
+</form>
+
+<script>
+  // Shows what was filled without revealing the password: username and password length.
+  for (const id of ["a", "b"]) {
+    document.getElementById("form-" + id).addEventListener("submit", (event) => {
+      event.preventDefault();
+      const fields = event.target.querySelectorAll("input");
+      document.getElementById(id + "-result").textContent =
+        "Benutzername: '" + fields[0].value + "', Passwortlänge: " + fields[1].value.length;
+    });
+  }
+</script>
+</body>
+</html>
