@@ -1,0 +1,217 @@
+<!doctype html>
+<!--
+  Test page for the end-to-end test of the KeyPass Mobile autofill service.
+  Covers AF-11 (only visible fields are filled): two-step logins with a hidden
+  password, hidden and zero-size decoys, plus the plain forms of the prototype.
+
+  Serve it over localhost, Brave asks autofill services only on HTTPS and localhost:
+    "C:\Program Files\Java\jdk-25.0.2\bin\jwebserver.exe" -p 8080 -d "C:\src\KeyPass Mobile\autofill\testpages"
+    adb reverse tcp:8080 tcp:8080
+  Then open http://localhost:8080/login-steps.html in Brave on the device or emulator.
+  Matching entry in the test database: URL http://localhost (any user name and password).
+  Per-field service log (structure only, no values):
+    adb shell setprop log.tag.KPM-Autofill DEBUG
+    adb logcat -s KPM-Autofill
+
+  Nothing is sent or stored. The panel under each form shows which fields hold
+  a value (user names in clear text, passwords only as length), updated on
+  every input event, so a wrongly filled hidden field shows up at once.
+-->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KPM Autofill-Test: Schritte</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; max-width: 520px; }
+  form { border: 1px solid #999; padding: 12px; margin-bottom: 24px; position: relative; }
+  h2 { font-size: 18px; margin: 0 0 4px; }
+  .expect { font-size: 14px; color: #555; margin: 0 0 8px; }
+  label { display: block; margin-top: 8px; }
+  input { font-size: 16px; width: 100%; box-sizing: border-box; padding: 6px; }
+  button { margin-top: 12px; font-size: 16px; }
+  .result { margin-top: 8px; font-family: monospace; font-size: 13px; white-space: pre-wrap;
+            background: #f3f3f3; padding: 6px; }
+  .bad { color: #b00020; font-weight: bold; }
+  .zero { width: 0; height: 0; padding: 0; border: 0; margin: 0; }
+  .offscreen { position: absolute; left: -9999px; top: 0; width: 200px; }
+  .transparent { opacity: 0; }
+</style>
+</head>
+<body>
+<h1>Autofill-Test: versteckte Felder</h1>
+<p>Für jedes Formular "KeyPass Mobile" wählen und einen Eintrag antippen. Felder mit
+<span class="bad">VERSTECKT, gefüllt</span> im Ergebnis sind ein Fehler (AF-11).</p>
+
+<!-- A: standard form with autocomplete attributes (prototype variant A). -->
+<form id="form-a" action="#" autocomplete="on">
+  <h2>A: Standard mit autocomplete</h2>
+  <p class="expect">Erwartet: Benutzername und Passwort gefüllt.</p>
+  <label for="a-user">Benutzername</label>
+  <input id="a-user" name="username" type="text" autocomplete="username">
+  <label for="a-pass">Passwort</label>
+  <input id="a-pass" name="password" type="password" autocomplete="current-password">
+  <button type="submit">Prüfen</button>
+  <div class="result"></div>
+</form>
+
+<!-- B: no autocomplete, neutral names (prototype variant B). The username is
+     found as the text field in front of the password field. -->
+<form id="form-b" action="#">
+  <h2>B: ohne autocomplete, neutrale Namen</h2>
+  <p class="expect">Erwartet: Feld 1 und Feld 2 gefüllt.</p>
+  <label for="b-f1">Feld 1</label>
+  <input id="b-f1" name="f1" type="text">
+  <label for="b-f2">Feld 2</label>
+  <input id="b-f2" name="f2" type="password">
+  <button type="submit">Prüfen</button>
+  <div class="result"></div>
+</form>
+
+<!-- C: two-step login, Google style. Step 2 is display:none until "Weiter";
+     then step 1 is hidden. Expected: step 1 fills only the e-mail, step 2
+     (new suggestion on the password field) fills only the password. -->
+<form id="form-c" action="#">
+  <h2>C: zweistufig, Schritt 1 verschwindet</h2>
+  <p class="expect">Erwartet: Schritt 1 nur E-Mail. Nach "Weiter" im Passwortfeld erneut
+  "KeyPass Mobile": nur Passwort, das versteckte E-Mail-Feld bleibt unverändert.</p>
+  <div id="c-step1">
+    <label for="c-user">E-Mail</label>
+    <input id="c-user" name="identifier" type="email" autocomplete="username">
+    <button type="button" id="c-next">Weiter</button>
+  </div>
+  <div id="c-step2" style="display: none">
+    <label for="c-pass">Passwort</label>
+    <input id="c-pass" name="Passwd" type="password" autocomplete="current-password">
+    <button type="button" id="c-back">Zurück</button>
+    <button type="submit">Anmelden</button>
+  </div>
+  <div class="result"></div>
+</form>
+
+<!-- D: two-step login, username stays. The password row is visibility:hidden
+     until "Weiter" (Amazon/Apple style). -->
+<form id="form-d" action="#">
+  <h2>D: zweistufig, Passwort erscheint darunter</h2>
+  <p class="expect">Erwartet: zuerst nur Benutzername. Nach "Weiter" Benutzername und Passwort.</p>
+  <label for="d-user">Benutzername</label>
+  <input id="d-user" name="login" type="text" autocomplete="username">
+  <button type="button" id="d-next">Weiter</button>
+  <div id="d-step2" style="visibility: hidden">
+    <label for="d-pass">Passwort</label>
+    <input id="d-pass" name="pass" type="password" autocomplete="current-password">
+    <button type="submit">Anmelden</button>
+  </div>
+  <div class="result"></div>
+</form>
+
+<!-- E: two-step login without autocomplete and with German labels. The hidden
+     PIN field does not count, so step 1 is recognised only by the label
+     "Anmeldename" (Chromium reports the label text in HtmlInfo). -->
+<form id="form-e" action="#">
+  <h2>E: zweistufig, deutsch, ohne autocomplete</h2>
+  <p class="expect">Erwartet: im Feld "Anmeldename" Vorschlag, nur dieses Feld gefüllt.
+  Nach "Weiter" im PIN-Feld Vorschlag, nur PIN gefüllt.</p>
+  <div id="e-step1">
+    <label for="e-user">Anmeldename</label>
+    <input id="e-user" name="feld1" type="text">
+    <button type="button" id="e-next">Weiter</button>
+  </div>
+  <div id="e-step2" hidden>
+    <label for="e-pin">PIN</label>
+    <input id="e-pin" name="feld2" type="password">
+    <button type="submit">Anmelden</button>
+  </div>
+  <div class="result"></div>
+</form>
+
+<!-- F: decoys around a normal login. type=hidden, display:none, a zero-size
+     and an off-screen password must stay empty (Brave 2026-11 reports them as
+     hidden or not at all). opacity:0 is a known gap: Brave reports it as
+     visible, it is just never picked because it is no login field. -->
+<form id="form-f" action="#">
+  <h2>F: Lockvögel</h2>
+  <p class="expect">Erwartet: nur "Benutzer" und "Kennwort" gefüllt, alle Lockvögel leer.</p>
+  <input name="username" type="hidden" value="">
+  <input name="decoy-display-none" type="password" style="display: none">
+  <input name="decoy-zero-size" type="password" class="zero" tabindex="-1">
+  <label for="f-user">Benutzer</label>
+  <input id="f-user" name="benutzer" type="text">
+  <label for="f-pass">Kennwort</label>
+  <input id="f-pass" name="kennwort" type="password">
+  <input name="decoy-transparent" type="text" class="transparent" tabindex="-1">
+  <input name="decoy-offscreen" type="password" class="offscreen" tabindex="-1">
+  <button type="submit">Prüfen</button>
+  <div class="result"></div>
+</form>
+
+<!-- G: password only (e.g. re-authentication). -->
+<form id="form-g" action="#">
+  <h2>G: nur Passwort</h2>
+  <p class="expect">Erwartet: nur das Passwort gefüllt.</p>
+  <label for="g-pass">Passwort bestätigen</label>
+  <input id="g-pass" name="confirm" type="password" autocomplete="current-password">
+  <button type="submit">Prüfen</button>
+  <div class="result"></div>
+</form>
+
+<script>
+  // Visible to the user: rendered, not visibility:hidden, non-zero size, not
+  // transparent and not off screen. Mirrors what AF-11 means, not what the
+  // service can detect.
+  function isShown(input) {
+    if (input.type === "hidden") return false;
+    const style = getComputedStyle(input);
+    const rect = input.getBoundingClientRect();
+    return input.offsetParent !== null && style.visibility !== "hidden" &&
+      Number(style.opacity) > 0 && rect.width > 0 && rect.height > 0 &&
+      rect.right > 0 && rect.bottom + window.scrollY > 0;
+  }
+
+  // Lists every input of a form: user names in clear, passwords as length only.
+  function report(form) {
+    const lines = [];
+    let html = "";
+    for (const input of form.querySelectorAll("input")) {
+      const shown = isShown(input);
+      const value = input.value;
+      const filled = value.length > 0;
+      const shownValue = !filled ? "leer"
+        : input.type === "password" ? "Länge " + value.length : "'" + value + "'";
+      const line = (input.name || input.id) + " (" + (shown ? "sichtbar" : "VERSTECKT") + "): " + shownValue;
+      const escaped = line.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      html += (!shown && filled ? "<span class=\"bad\">" + escaped + " - VERSTECKT, gefüllt</span>" : escaped) + "\n";
+    }
+    form.querySelector(".result").innerHTML = html;
+  }
+
+  for (const form of document.querySelectorAll("form")) {
+    form.addEventListener("submit", (event) => { event.preventDefault(); report(form); });
+    form.addEventListener("input", () => report(form));
+    form.addEventListener("change", () => report(form));
+    report(form);
+  }
+
+  function show(id, visible) { document.getElementById(id).style.display = visible ? "" : "none"; }
+
+  document.getElementById("c-next").addEventListener("click", () => {
+    show("c-step1", false); show("c-step2", true); document.getElementById("c-pass").focus();
+    report(document.getElementById("form-c"));
+  });
+  document.getElementById("c-back").addEventListener("click", () => {
+    show("c-step2", false); show("c-step1", true); report(document.getElementById("form-c"));
+  });
+  document.getElementById("d-next").addEventListener("click", () => {
+    document.getElementById("d-step2").style.visibility = "visible";
+    document.getElementById("d-pass").focus();
+    report(document.getElementById("form-d"));
+  });
+  document.getElementById("e-next").addEventListener("click", () => {
+    document.getElementById("e-step1").hidden = true;
+    document.getElementById("e-step2").hidden = false;
+    document.getElementById("e-pin").focus();
+    report(document.getElementById("form-e"));
+  });
+</script>
+</body>
+</html>

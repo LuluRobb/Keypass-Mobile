@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- SMB access to the configured share only (SE-06); WorkManager checks the network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Foreground service while unlocked (SE-03) and its notification. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Fingerprint prompt (EN-02). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- SystemState checks that the autofill service picker exists (UI-06). -->
+    <queries>
+        <intent>
+            <action android:name="android.settings.REQUEST_SET_AUTOFILL_SERVICE" />
+            <data android:scheme="package" />
+        </intent>
+    </queries>
+
+    <!-- No backup and no device transfer of settings, keys or the offline copy (SE-08). -->
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/platform_data_extraction_rules">
+
+        <!-- Keeps the process alive while unlocked: idle lock, clipboard clearing,
+             lock on swipe away (SE-01 to SE-03, AF-09). Stops itself on lock. -->
+        <service
+            android:name=".service.UnlockedService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the unlocked password database in memory and locks it after the configured idle time, when the app is swiped away, or on request. Clears copied credentials from the clipboard." />
+        </service>
+    </application>
+
+</manifest>

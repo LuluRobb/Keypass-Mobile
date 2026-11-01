@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window theme only; the UI itself is styled by Compose Material 3 (KeyPassTheme).
+         The window background matches the surface color, so there is no flash before
+         the first Compose frame. -->
+    <style name="Theme.KeyPassMobile" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/kpm_window_background</item>
+    </style>
+</resources>

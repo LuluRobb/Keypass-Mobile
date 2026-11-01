@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings of :platform (notification SE-03, fingerprint prompt EN-02). Prefixed with
+     "platform_" so they never clash with resources of :app. German only (UI-04). -->
+<resources>
+    <string name="platform_notification_channel">Entsperrt</string>
+    <string name="platform_notification_channel_description">Zeigt an, solange KeyPass Mobile entsperrt ist.</string>
+    <string name="platform_notification_title">KeyPass Mobile entsperrt</string>
+    <string name="platform_notification_text">Sperrt nach %1$s ohne Nutzung.</string>
+    <string name="platform_notification_action_lock">Sperren</string>
+
+    <string name="platform_biometric_title">KeyPass Mobile entsperren</string>
+    <string name="platform_biometric_negative">Passwort eingeben</string>
+
+    <string name="platform_clip_label">KeyPass Mobile</string>
+
+    <plurals name="platform_duration_seconds">
+        <item quantity="one">%d Sekunde</item>
+        <item quantity="other">%d Sekunden</item>
+    </plurals>
+    <plurals name="platform_duration_minutes">
+        <item quantity="one">%d Minute</item>
+        <item quantity="other">%d Minuten</item>
+    </plurals>
+</resources>

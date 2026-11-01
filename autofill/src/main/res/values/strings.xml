@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings of the autofill service. Prefixed with kpm_autofill_ because library
+     resources are merged into the app namespace. -->
+<resources>
+    <!-- Name of the service in the Android autofill settings. -->
+    <string name="kpm_autofill_service_label">KeyPass Mobile</string>
+    <!-- The one suggestion in the keyboard or below the field, nothing else (AF-02). -->
+    <string name="kpm_autofill_suggestion_title" translatable="false">KeyPass Mobile</string>
+    <!-- Spoken by TalkBack for the suggestion. -->
+    <string name="kpm_autofill_suggestion_description">KeyPass Mobile: Eintrag auswählen</string>
+</resources>

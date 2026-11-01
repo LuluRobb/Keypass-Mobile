@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<!-- Structure test content for KeyPass Mobile :kdbx (test data only, no real credentials).
+     Imported with keepassxc-cli by create-structure-testdb.ps1, which then lets KeePassXC
+     delete "Sonstiges/Wegwerfen" and the group "Alt" (recycle bin created by KeePassXC) and
+     edit "Sonstiges/Router" (history entry created by KeePassXC).
+     UUIDs are 00000000-0000-0000-0000-0000000000XX; the tests rely on them:
+     groups 01-0A, entries 10-1C, custom icons 20-22. -->
+<KeePassFile>
+	<Meta>
+		<Generator>kpm-testdata</Generator>
+		<DatabaseName>KPM Test Struktur</DatabaseName>
+		<RecycleBinEnabled>True</RecycleBinEnabled>
+		<EntryTemplatesGroup>AAAAAAAAAAAAAAAAAAAABg==</EntryTemplatesGroup>
+		<CustomIcons>
+			<Icon>
+				<UUID>AAAAAAAAAAAAAAAAAAAAIA==</UUID>
+				<Data>iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAIUlEQVR4XmMQTT1AEmLAFMKP6KzhPw4wqoG+GohBg1ADAB8TqtD9aLiBAAAAAElFTkSuQmCC</Data>
+				<Name>Bank-Symbol</Name>
+			</Icon>
+			<Icon>
+				<UUID>AAAAAAAAAAAAAAAAAAAAIQ==</UUID>
+				<Data>iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAIUlEQVR4XmPQqzUiCTFgCuFHdNbwHwcY1UBfDcSgQagBAMgOZRDj9SYRAAAAAElFTkSuQmCC</Data>
+				<Name>Gruppen-Symbol</Name>
+			</Icon>
+			<Icon>
+				<UUID>AAAAAAAAAAAAAAAAAAAAIg==</UUID>
+				<Data>iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAIUlEQVR4XmM4pqFBEmLAFMKP6KzhPw4wqoG+GohBg1ADALtsj9CzIwYtAAAAAElFTkSuQmCC</Data>
+				<Name>Archiv-Symbol</Name>
+			</Icon>
+		</CustomIcons>
+	</Meta>
+	<Root>
+		<Group>
+			<UUID>AAAAAAAAAAAAAAAAAAAAAQ==</UUID>
+			<Name>Tresor</Name>
+			<IconID>49</IconID>
+			<Entry>
+				<UUID>AAAAAAAAAAAAAAAAAAAAEA==</UUID>
+				<IconID>0</IconID>
+				<String><Key>Title</Key><Value>Root-Eintrag</Value></String>
+				<String><Key>UserName</Key><Value>root-user</Value></String>
+				<String><Key>Password</Key><Value ProtectInMemory="True">root-Test-1</Value></String>
+				<String><Key>URL</Key><Value>https://root.example.com</Value></String>
+				<String><Key>Notes</Key><Value></Value></String>
+			</Entry>
+			<Group>
+				<UUID>AAAAAAAAAAAAAAAAAAAAAg==</UUID>
+				<Name>Finanzen</Name>
+				<IconID>37</IconID>
+				<CustomIconUUID>AAAAAAAAAAAAAAAAAAAAIQ==</CustomIconUUID>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAEQ==</UUID>
+					<IconID>66</IconID>
+					<Tags>Bank</Tags>
+					<String><Key>Title</Key><Value>Girokonto</Value></String>
+					<String><Key>UserName</Key><Value>giro-kunde</Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True">giro-Test-2</Value></String>
+					<String><Key>URL</Key><Value>https://giro.example.com</Value></String>
+					<String><Key>Notes</Key><Value></Value></String>
+				</Entry>
+				<Group>
+					<UUID>AAAAAAAAAAAAAAAAAAAAAw==</UUID>
+					<Name>Geschäftlich</Name>
+					<Entry>
+						<UUID>AAAAAAAAAAAAAAAAAAAAEg==</UUID>
+						<IconID>37</IconID>
+						<CustomIconUUID>AAAAAAAAAAAAAAAAAAAAIA==</CustomIconUUID>
+						<Tags>Bank;Wichtig;Größe</Tags>
+						<String><Key>Title</Key><Value>Online-Banking</Value></String>
+						<String><Key>UserName</Key><Value>firma-kunde</Value></String>
+						<String><Key>Password</Key><Value ProtectInMemory="True">Pässwort-€-𝄞-Test</Value></String>
+						<String><Key>URL</Key><Value>https://bank.example.com/login</Value></String>
+						<String><Key>Notes</Key><Value>Kundennummer steht im Brief.
+Zweite Zeile: äöü ÄÖÜ ß
+
+Nach der Leerzeile: Ende</Value></String>
+						<String><Key>KP2A_URL</Key><Value>https://m.bank.example.com</Value></String>
+						<String><Key>KP2A_URL_1</Key><Value>https://bank.example.de</Value></String>
+						<String><Key>KP2A_URL_2</Key><Value>https://app.bank.example.com</Value></String>
+						<String><Key>KP2A_URL_10</Key><Value>https://alt.bank.example.com</Value></String>
+						<String><Key>KP2A_URLX</Key><Value>https://kein-zusatz.example.com</Value></String>
+					</Entry>
+					<Group>
+						<UUID>AAAAAAAAAAAAAAAAAAAABA==</UUID>
+						<Name>Übersee &amp; Ausland</Name>
+						<Entry>
+							<UUID>AAAAAAAAAAAAAAAAAAAAEw==</UUID>
+							<IconID>1</IconID>
+							<String><Key>Title</Key><Value>Auslandskonto</Value></String>
+							<String><Key>UserName</Key><Value>overseas</Value></String>
+							<String><Key>Password</Key><Value ProtectInMemory="True">ausland-Test-3</Value></String>
+							<String><Key>URL</Key><Value>https://overseas.example.com</Value></String>
+							<String><Key>Notes</Key><Value></Value></String>
+						</Entry>
+					</Group>
+				</Group>
+			</Group>
+			<Group>
+				<UUID>AAAAAAAAAAAAAAAAAAAABQ==</UUID>
+				<Name>E-Mail</Name>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAFA==</UUID>
+					<IconID>19</IconID>
+					<String><Key>Title</Key><Value>Mailkonto</Value></String>
+					<String><Key>UserName</Key><Value>ich@mail.example.com</Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True">mail-Test-4</Value></String>
+					<String><Key>URL</Key><Value>https://mail.example.com</Value></String>
+					<String><Key>Notes</Key><Value></Value></String>
+					<History>
+						<Entry>
+							<UUID>AAAAAAAAAAAAAAAAAAAAFA==</UUID>
+							<IconID>19</IconID>
+							<String><Key>Title</Key><Value>Mailkonto (alt)</Value></String>
+							<String><Key>UserName</Key><Value>ich@mail.example.com</Value></String>
+							<String><Key>Password</Key><Value ProtectInMemory="True">mail-Alt-0</Value></String>
+							<String><Key>URL</Key><Value>https://mail.example.com</Value></String>
+							<String><Key>Notes</Key><Value></Value></String>
+						</Entry>
+					</History>
+				</Entry>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAFQ==</UUID>
+					<IconID>68</IconID>
+					<String><Key>Title</Key><Value>Forum</Value></String>
+					<String><Key>UserName</Key><Value>forum-user</Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True"></Value></String>
+					<String><Key>URL</Key><Value>https://forum.example.com</Value></String>
+					<String><Key>Notes</Key><Value>Passwort absichtlich leer</Value></String>
+				</Entry>
+			</Group>
+			<Group>
+				<UUID>AAAAAAAAAAAAAAAAAAAABg==</UUID>
+				<Name>Vorlagen</Name>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAFg==</UUID>
+					<String><Key>Title</Key><Value>Vorlage Login</Value></String>
+					<String><Key>UserName</Key><Value></Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True"></Value></String>
+					<String><Key>URL</Key><Value></Value></String>
+					<String><Key>Notes</Key><Value></Value></String>
+				</Entry>
+				<Group>
+					<UUID>AAAAAAAAAAAAAAAAAAAABw==</UUID>
+					<Name>Vorlagen-Unter</Name>
+					<Entry>
+						<UUID>AAAAAAAAAAAAAAAAAAAAFw==</UUID>
+						<String><Key>Title</Key><Value>Vorlage Unter</Value></String>
+						<String><Key>UserName</Key><Value></Value></String>
+						<String><Key>Password</Key><Value ProtectInMemory="True">vorlage-Test</Value></String>
+						<String><Key>URL</Key><Value></Value></String>
+						<String><Key>Notes</Key><Value></Value></String>
+					</Entry>
+				</Group>
+			</Group>
+			<Group>
+				<UUID>AAAAAAAAAAAAAAAAAAAACA==</UUID>
+				<Name>Alt</Name>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAGA==</UUID>
+					<String><Key>Title</Key><Value>Alter Zugang</Value></String>
+					<String><Key>UserName</Key><Value>alt-user</Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True">alt-Test-6</Value></String>
+					<String><Key>URL</Key><Value>https://alt.example.com</Value></String>
+					<String><Key>Notes</Key><Value></Value></String>
+				</Entry>
+				<Group>
+					<UUID>AAAAAAAAAAAAAAAAAAAACQ==</UUID>
+					<Name>Archiv</Name>
+					<Entry>
+						<UUID>AAAAAAAAAAAAAAAAAAAAGQ==</UUID>
+						<CustomIconUUID>AAAAAAAAAAAAAAAAAAAAIg==</CustomIconUUID>
+						<String><Key>Title</Key><Value>Archivierter Zugang</Value></String>
+						<String><Key>UserName</Key><Value>archiv-user</Value></String>
+						<String><Key>Password</Key><Value ProtectInMemory="True">archiv-Test-7</Value></String>
+						<String><Key>URL</Key><Value>https://archiv.example.com</Value></String>
+						<String><Key>Notes</Key><Value></Value></String>
+					</Entry>
+				</Group>
+			</Group>
+			<Group>
+				<UUID>AAAAAAAAAAAAAAAAAAAACg==</UUID>
+				<Name>Sonstiges</Name>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAGg==</UUID>
+					<String><Key>Title</Key><Value>Wegwerfen</Value></String>
+					<String><Key>UserName</Key><Value>weg-user</Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True">weg-Test-8</Value></String>
+					<String><Key>URL</Key><Value>https://weg.example.com</Value></String>
+					<String><Key>Notes</Key><Value></Value></String>
+				</Entry>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAGw==</UUID>
+					<IconID>3</IconID>
+					<Tags>Privat</Tags>
+					<String><Key>Title</Key><Value>Router</Value></String>
+					<String><Key>UserName</Key><Value>admin</Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True">router-Test-9</Value></String>
+					<String><Key>URL</Key><Value>http://192.168.178.1</Value></String>
+					<String><Key>Notes</Key><Value>Nur im Heimnetz</Value></String>
+				</Entry>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAHA==</UUID>
+					<String><Key>Title</Key><Value>Ungeschützt</Value></String>
+					<String><Key>UserName</Key><Value>plain-user</Value></String>
+					<String><Key>Password</Key><Value>plain-Test-5</Value></String>
+					<String><Key>URL</Key><Value></Value></String>
+					<String><Key>Notes</Key><Value></Value></String>
+				</Entry>
+			</Group>
+		</Group>
+	</Root>
+</KeePassFile>

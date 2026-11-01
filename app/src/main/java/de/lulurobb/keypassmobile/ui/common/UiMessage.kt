@@ -1,0 +1,111 @@
+package de.lulurobb.keypassmobile.ui.common
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import de.lulurobb.keypassmobile.R
+import kotlinx.coroutines.delay
+
+/**
+ * Short feedback shown as a snackbar at the bottom of a screen. Screens take
+ * `message: UiMessage?` and `onMessageDismissed`; set the message to show it,
+ * the screen calls `onMessageDismissed` when it times out (except [Copied],
+ * whose countdown the caller drives and replaces with [ClipboardCleared]).
+ */
+sealed interface UiMessage {
+    /** Copied value with countdown. Update [secondsLeft] every second. */
+    data class Copied(val value: CopiedValue, val secondsLeft: Int) : UiMessage
+    data object ClipboardCleared : UiMessage
+    data object Locked : UiMessage
+    /** "Gesperrt nach 2 Minuten ohne Nutzung." (SE-02), shown on the unlock screen. */
+    data class AutoLocked(val idleSeconds: Int) : UiMessage
+    data class SetupDone(val fingerprint: Boolean) : UiMessage
+    /** After entering the due master password (EN-05). */
+    data class FingerprintRenewed(val days: Int) : UiMessage
+    data object FingerprintFailed : UiMessage
+    data object SyncNoNewer : UiMessage
+    data object SyncUpdated : UiMessage
+    data object SyncUnreachable : UiMessage
+    data object SyncOtherServer : UiMessage
+    /** Sync now while locked runs as background job (SY-07). */
+    data object SyncStarted : UiMessage
+    data object ServerAccepted : UiMessage
+    data class ShareDenied(val share: String, val user: String) : UiMessage
+    data class ShareNotFound(val share: String) : UiMessage
+    data object SourceSaved : UiMessage
+}
+
+enum class CopiedValue { Username, Password }
+
+@Composable
+fun UiMessage.text(): String = when (this) {
+    is UiMessage.Copied -> stringResource(
+        if (value == CopiedValue.Username) R.string.msg_copied_username else R.string.msg_copied_password,
+        secondsLeft,
+    )
+    UiMessage.ClipboardCleared -> stringResource(R.string.msg_clipboard_cleared)
+    UiMessage.Locked -> stringResource(R.string.msg_locked)
+    is UiMessage.AutoLocked -> stringResource(R.string.msg_auto_locked, durationText(idleSeconds))
+    is UiMessage.SetupDone -> stringResource(
+        if (fingerprint) R.string.msg_setup_done_fingerprint else R.string.msg_setup_done,
+    )
+    is UiMessage.FingerprintRenewed -> stringResource(R.string.msg_fingerprint_renewed, daysText(days))
+    UiMessage.FingerprintFailed -> stringResource(R.string.msg_fingerprint_failed)
+    UiMessage.SyncNoNewer -> stringResource(R.string.msg_sync_no_newer)
+    UiMessage.SyncUpdated -> stringResource(R.string.msg_sync_updated)
+    UiMessage.SyncUnreachable -> stringResource(R.string.msg_sync_unreachable)
+    UiMessage.SyncOtherServer -> stringResource(R.string.msg_sync_other_server)
+    UiMessage.SyncStarted -> stringResource(R.string.msg_sync_started)
+    UiMessage.ServerAccepted -> stringResource(R.string.msg_server_accepted)
+    is UiMessage.ShareDenied -> stringResource(R.string.msg_share_denied, share, user)
+    is UiMessage.ShareNotFound -> stringResource(R.string.msg_share_not_found, share)
+    UiMessage.SourceSaved -> stringResource(R.string.msg_source_saved)
+}
+
+private const val MESSAGE_MILLIS = 4000L
+private const val LONG_MESSAGE_MILLIS = 6000L
+
+/**
+ * Snackbar host for [UiMessage]. Put it into the Scaffold's snackbarHost slot.
+ * The text updates in place, so a countdown does not flicker.
+ */
+@Composable
+fun MessageHost(message: UiMessage?, onDismissed: () -> Unit, modifier: Modifier = Modifier) {
+    val dismiss by rememberUpdatedState(onDismissed)
+    // Keep the last message while the exit animation runs (plain holder, no state).
+    val last = remember { arrayOfNulls<UiMessage>(1) }
+    if (message != null) last[0] = message
+    val shown = last[0]
+    LaunchedEffect(message) {
+        if (message == null || message is UiMessage.Copied) return@LaunchedEffect
+        delay(if (message is UiMessage.ShareDenied) LONG_MESSAGE_MILLIS else MESSAGE_MILLIS)
+        dismiss()
+    }
+    AnimatedVisibility(
+        visible = message != null,
+        modifier = modifier,
+        enter = fadeIn(tween(150)) + slideInVertically(tween(200)) { it / 3 },
+        exit = fadeOut(tween(150)),
+    ) {
+        shown?.let {
+            Snackbar(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
+                Text(it.text())
+            }
+        }
+    }
+}

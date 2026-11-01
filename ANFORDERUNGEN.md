@@ -30,8 +30,8 @@ Festgelegte Rahmenbedingungen:
 | DS-03 | Das SMB-Passwort liegt verschlüsselt im Android Keystore, nie im Klartext. Der Schlüssel ist ohne Fingerabdruck nutzbar, damit der Hintergrund-Sync (SY-06) laufen kann. | MUSS |
 | DS-04 | **Server-Identität prüfen:** Beim ersten erfolgreichen Sync merkt sich die App die Server-GUID, die der Server beim Verbindungsaufbau vor der Anmeldung schickt. Weicht sie später ab, bricht die App vor der Anmeldung ab und nutzt die Offline-Kopie. Bei einer legitimen Änderung (z. B. NAS neu aufgesetzt) fragt die App einmal nach. Das verhindert, dass sich die App in einem fremden Netz mit gleichem Adressbereich bei einem fremden Gerät anmeldet. Ohne Einstellungen, ohne SSID, ohne Standortberechtigung. Achtung: Samba bildet die GUID aus dem NetBIOS-Namen des Servers (nicht zufällig), Windows nutzt eine zufällige GUID. Bei Samba schützt die Prüfung daher nur, wenn der Servername unverwechselbar ist. | MUSS |
 | DS-05 | Kurzes Verbindungs-Timeout (wenige Sekunden), damit ein nicht erreichbarer Share nichts blockiert | MUSS |
-| DS-06 | "Verbindung testen"-Button beim Einrichten der Quelle | SOLL |
-| DS-07 | SMB-Verschlüsselung/Signierung nutzen, wenn der Server sie anbietet | SOLL |
+| DS-06 | Verbindung beim Einrichten prüfen. Das übernimmt das Verbinden in DS-02 (Fehler werden dort angezeigt), ein eigener Button "Verbindung testen" entfällt. | MUSS |
+| DS-07 | SMB-Signierung verlangen und Verschlüsselung nutzen, wenn der Server sie anbietet (Standard von `smbj`, im Prototyp geprüft) | MUSS |
 
 **Hinweise zur Einrichtung** (entscheidet der Nutzer auf dem Server, die App kann es nicht erzwingen):
 
@@ -100,8 +100,9 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 | UI-01 | **Eine Ansicht für App und Autofill:** Liste aller Einträge mit Volltextsuche über Titel, Benutzername, URL, Notizen, Tags und Gruppe (nur im Arbeitsspeicher, kein gespeicherter Index). Die Liste ist nach Gruppen gegliedert: ein Abschnitt pro Gruppe mit dem Gruppenpfad als Überschrift (inkl. Untergruppen), darin A–Z, darüber Filter nach Hauptgruppe. Suchergebnisse erscheinen als eine Liste mit der Gruppe in jeder Zeile. Kein aufklappbarer Gruppenbaum, keine Sortierung nach zuletzt benutzt (die App speichert nichts über die Nutzung). Im Autofill stehen darüber die passenden Einträge (AF-05). | MUSS |
 | UI-02 | Direkt geöffnet: Ein Tipp auf einen Eintrag öffnet eine knappe Ansicht mit Icon, Titel, Adresse (URL), Gruppe, Benutzername, Notizen und den Buttons "Benutzername kopieren" und "Passwort kopieren" (AF-09). Das Passwort wird nicht angezeigt. | MUSS |
 | UI-03 | Einstellungen: SMB-Quelle, Sync-Status mit "Jetzt synchronisieren" (SY-07, SY-08), Fingerabdruck an/aus, Frist für das Master-Passwort (EN-05), Zeit bis zur automatischen Sperre (SE-02), Zeit bis zum Löschen der Zwischenablage | MUSS |
-| UI-04 | Hell/Dunkel nach Systemeinstellung. Sprache nur Deutsch. | SOLL |
+| UI-04 | Hell/Dunkel nach Systemeinstellung. Sprache nur Deutsch. | MUSS |
 | UI-05 | Eintrags-Icons aus der Datenbank anzeigen: eigene Icons (z. B. in KeePassXC heruntergeladene Favicons) direkt aus der KDBX, Standard-Icons (KeePass-Icon-Nummern) über eine eigene Zuordnung zu Material-Symbolen. Nichts wird aus dem Netz nachgeladen (SE-06). | MUSS |
+| UI-06 | Am Ende der Einrichtung zwei Hinweise mit je einem Button, der die passende Systemeinstellung öffnet: KeyPass Mobile als Autofill-Dienst wählen (AF-01) und Benachrichtigungen erlauben (ab Android 13 nötig für die Benachrichtigung aus SE-03). Beides ist auch später aus den Einstellungen erreichbar. | MUSS |
 
 ## 7. Sicherheit
 
@@ -144,16 +145,17 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 
 ## 9. Technische Hinweise und Risiken
 
-- **Autofill in Brave (größtes Risiko):** Brave reicht Autofill ab Version 1.79.119 an fremde Dienste weiter, wenn man in Brave "Autofill using another service" wählt und Brave neu startet. In der Brave-Community gibt es aber Berichte, dass Passwortmanager trotzdem nicht erscheinen. Deshalb kommt der Autofill-Prototyp zuerst (Abschnitt 10). Plan B ist die eigene Tastatur (AF-10).
-- **Inline-Vorschläge:** Samsung Keyboard unterstützte die Inline-API zumindest früher. Im Prototyp prüfen. Ohne Unterstützung zeigt Android den Vorschlag als Liste unter dem Feld.
+- **Autofill in Brave:** Brave reicht Autofill ab Version 1.79.119 an fremde Dienste weiter, wenn man in Brave "Autofill using another service" wählt und Brave neu startet. Im Prototyp auf dem A55 bestätigt (Abschnitt 13). Plan B (eigene Tastatur, AF-10) bleibt SOLL.
+- **Inline-Vorschläge:** Die Samsung-Tastatur auf dem A55 fordert Inline-Vorschläge an (Abschnitt 13). Ohne Unterstützung zeigt Android den Vorschlag als Liste unter dem Feld.
 - **KDBX in Kotlin:** kotpass 0.13.0 (MIT) liest KDBX 3.1, 4.0 und 4.1 mit Argon2d, Argon2id, AES-KDF sowie AES-256, ChaCha20 und Twofish, inkl. zusätzlicher URLs (`KP2A_URL*`), Tags und eigener Felder (im Prototyp mit von KeePassXC 2.7.11 geschriebenen Dateien getestet). Einschränkungen: Feldwerte kommen als String, Schutz im Speicher nur per XOR. Wie aktiv kotpass gepflegt wird, ist noch nicht geprüft.
 - **Gruppen und Icons (UI-01, UI-05):** kotpass bildet laut API den Gruppenbaum, die Standard-Icon-Nummer und eigene Icons ab. Im Prototyp noch nicht geprüft, beim MVP mit einer echten KeePassXC-Datei testen.
-- **Argon2:** kotpass rechnet Argon2 in reinem Kotlin und single-threaded, auf dem PC gut 4x langsamer als KeePassXC (KeePassXC-Standard: Argon2d, 64 MiB, Parallelität 4, Iterationen auf 1 s am PC kalibriert). Daher natives Argon2 (argon2kt 1.6.0, MIT, JNI) über die austauschbare KDF-Schnittstelle von kotpass einhängen. Ob 2 Sekunden auf dem A55 erreichbar sind, zeigt die Messung mit der echten Datei.
+- **Argon2:** kotpass rechnet Argon2 in reinem Kotlin und single-threaded, auf dem PC gut 4x langsamer als KeePassXC (KeePassXC-Standard: Argon2d, 64 MiB, Parallelität 4, Iterationen auf 1 s am PC kalibriert). Daher natives Argon2 (argon2kt 1.6.0, MIT, JNI) über die austauschbare KDF-Schnittstelle von kotpass einhängen. Damit öffnet die echte Datei auf dem A55 in 1,5 s (Abschnitt 13).
 - **Öffnen per Hash (EN-03):** kotpass hat keine eigene API dafür, akzeptiert den 32-Byte-SHA-256-Hash aber als Schlüsseldatei-Komponente. Der zusammengesetzte Schlüssel ist dann identisch (getestet mit 3.1, 4.0, 4.1). Gilt nur für Datenbanken mit reinem Passwort. Die App sollte immer selbst hashen und über den Hash öffnen, weil kotpass beim Öffnen per Passwort eine unbereinigte Kopie hinterlässt.
 - **SMB:** `smbj` 0.15.0 (SMB 2/3). Die Server-GUID steht nach dem Verbindungsaufbau und vor der Anmeldung bereit, ein Abbruch an dieser Stelle sendet nachweislich keine Anmeldedaten (Samba-Log geprüft). Signierung verlangen und Verschlüsselung nutzen, wenn angeboten, ist der Standard (nur AES-128). Unter Android über BouncyCastle (MD4 für NTLM). `smbj` wandelt das Passwort intern in einen String um (SE-04 nur eingeschränkt erfüllbar). Ordner einer Freigabe auflisten kann `smbj` selbst. Die Liste der Freigaben braucht dagegen einen RPC-Aufruf (SRVSVC NetShareEnum), den `smbj` nicht mitbringt. Kandidat dafür ist `smbj-rpc` von Rapid7 (Lizenz und Pflegezustand prüfen). Die Server-GUID merkt sich die App schon bei dieser ersten Verbindung (DS-04).
-- **Biometrie:** BiometricPrompt mit CryptoObject und `BIOMETRIC_STRONG`. Keystore-Schlüssel mit `setUserAuthenticationRequired(true)`, `setInvalidatedByBiometricEnrollment(true)` und Ablaufdatum (`setKeyValidityForConsumptionEnd`). StrongBox nutzen, wenn verfügbar.
+- **Biometrie:** BiometricPrompt mit CryptoObject und `BIOMETRIC_STRONG`. Keystore-Schlüssel mit `setUserAuthenticationRequired(true)`, `setInvalidatedByBiometricEnrollment(true)` und Ablaufdatum (`setKeyValidityForConsumptionEnd`). StrongBox nutzen, wenn verfügbar. Für den Passwort-Hash ein RSA-Schlüsselpaar statt eines AES-Schlüssels: Verschlüsseln mit dem öffentlichen Schlüssel geht ohne Fingerabdruck, Entschlüsseln nur nach Fingerabdruck. So reicht bei fälligem Master-Passwort (EN-05) die Passworteingabe, ohne zusätzlichen Fingerabdruck. Achtung bei RSA-OAEP: Der Keystore unterstützt für MGF1 nur SHA-1, das muss beim Verschlüsseln ausdrücklich angegeben werden.
 - **Hintergrund:** Vordergrunddienst für Sperre, Zwischenablage und `onTaskRemoved` (Wegwischen erkennen). Ab Android 14 braucht er einen Diensttyp; ohne Play Store ist `specialUse` unproblematisch. Hintergrund-Sync über WorkManager.
-- **App-Namen:** Für den Abgleich nach App-Namen (AF-05) muss die App den Namen der anfragenden App auslesen können. Prüfen, ob dafür Package Visibility (Android 11+) nötig ist. Ohne Play Store wäre `QUERY_ALL_PACKAGES` unproblematisch.
+- **App-Namen:** Für den Abgleich nach App-Namen (AF-05) liest die App den Namen der anfragenden App. Laut Prototyp geht das ohne `<queries>` und ohne `QUERY_ALL_PACKAGES`, weil die Autofill-Anfrage die anfragende App sichtbar macht (Abschnitt 13).
+- **Hintergrund-Sync auf Samsung:** Die Akku-Optimierung von One UI kann den periodischen Job (SY-06) verzögern. Falls das im Alltag stört, die App in den Akku-Einstellungen auf "Nicht eingeschränkt" stellen.
 
 ## 10. Ausbaustufen
 
@@ -168,10 +170,9 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
    - Autofill-Vorschlag "KeyPass Mobile" mit Eintragsliste, passenden Einträgen oben und Phishing-Warnung
    - Zwischenablage-Fallback mit automatischem Löschen
    - Auto-Sperre (Wegwischen / einstellbare Zeit ohne Nutzung) über Vordergrunddienst
+   - Hell/Dunkel, SMB-Signierung und -Verschlüsselung (fallen mit Compose bzw. `smbj` praktisch ohne Aufwand ab)
 2. **Stufe 2:**
-   - Eigene Tastatur (falls sie nicht schon als Plan B in den MVP gerutscht ist)
-   - "Verbindung testen", SMB-Verschlüsselung/Signierung
-   - Hell/Dunkel
+   - Eigene Tastatur (AF-10)
 3. **Später:** Schlüsseldatei, YubiKey, Passkeys, KDBX 3.1 / AES-KDF / Twofish, Sperren beim Ausschalten des Displays, lokale Datei als Quelle (Android Storage Access Framework).
 
 ## 11. Nicht im Umfang
@@ -233,3 +234,10 @@ Nach dem Emulatortest entschieden:
 Nach den Prototypen:
 
 - Gestaltung der Oberfläche: erledigt am 31.10.2026. Klickbarer UI-Entwurf mit allen Bildschirmen und Entscheidungen: https://claude.ai/artifact/7efcpsCWoK55cPQBWFNmq7 (privat). Die Entscheidungen stehen in den Anforderungen oben (DS-02, EN-02, EN-05, AF-02 bis AF-04, AF-09, UI-01 bis UI-05, SE-02, SY-06).
+
+Vor dem MVP entschieden (01.11.2026):
+
+- DS-06, DS-07 und UI-04 gehören zum MVP, weil sie praktisch ohne Aufwand abfallen.
+- Neu UI-06: Hinweise für Autofill-Dienst und Benachrichtigungen am Ende der Einrichtung (fehlten im UI-Entwurf).
+- Passwort-Hash mit RSA-Schlüsselpaar im Keystore, damit bei fälligem Master-Passwort kein zusätzlicher Fingerabdruck nötig ist (Abschnitt 9, Biometrie).
+- Paketname der App: `de.lulurobb.keypassmobile`.

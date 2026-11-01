@@ -1,0 +1,273 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- All user-visible texts of KeyPass Mobile. German only (UI-04). -->
+<resources>
+    <string name="app_name">KeyPass Mobile</string>
+
+    <!-- Common actions and content descriptions -->
+    <string name="action_back">Zurück</string>
+    <string name="action_cancel">Abbrechen</string>
+    <string name="action_ok">OK</string>
+    <string name="action_lock">Sperren</string>
+    <string name="action_settings">Einstellungen</string>
+    <string name="action_show_password">Passwort zeigen</string>
+    <string name="action_hide_password">Passwort verbergen</string>
+    <string name="action_details">Details</string>
+    <string name="action_retry">Erneut versuchen</string>
+    <string name="step_of">Schritt %1$d von %2$d</string>
+
+    <!-- Search -->
+    <string name="search_placeholder">Einträge durchsuchen</string>
+    <string name="search_clear">Suche leeren</string>
+
+    <!-- Setup, step 1: server -->
+    <string name="setup_title">Einrichten</string>
+    <string name="setup_edit_source_title">Quelle ändern</string>
+    <string name="setup_server_heading">Mit welchem Server verbinden?</string>
+    <string name="setup_server_lead">KeyPass Mobile liest deine KDBX-Datei von einer SMB-Freigabe und behält eine verschlüsselte Kopie für unterwegs. Die Datei wählst du im nächsten Schritt aus.</string>
+    <string name="setup_field_host">Host</string>
+    <string name="setup_field_host_helper">Am besten die IP-Adresse, dann greift das kurze Timeout.</string>
+    <string name="setup_field_user">Benutzer</string>
+    <string name="setup_field_user_helper">Am besten ein eigener Benutzer, der nur den Ordner mit der Datenbank lesen darf.</string>
+    <string name="setup_field_password">Passwort</string>
+    <string name="setup_advanced">Erweitert: Port und Domäne</string>
+    <string name="setup_field_port">Port</string>
+    <string name="setup_field_domain">Domäne (optional)</string>
+    <string name="setup_connect">Verbinden</string>
+    <string name="setup_connecting">Verbinde …</string>
+    <string name="setup_error_host_missing">Bitte den Host eingeben.</string>
+    <string name="setup_error_user_missing">Bitte den Benutzer eingeben.</string>
+    <string name="setup_error_port_invalid">Der Port ist eine Zahl von 1 bis 65535.</string>
+    <string name="setup_error_unreachable_title">Server nicht erreichbar</string>
+    <string name="setup_error_unreachable_text">Unter %1$s antwortet kein SMB-Server. Prüf die Adresse und ob das Handy im selben Netz ist.</string>
+    <string name="setup_error_login_title">Anmeldung fehlgeschlagen</string>
+    <string name="setup_error_login_text">Der Server hat Benutzer oder Passwort abgelehnt.</string>
+    <string name="setup_error_other_server_title">Anderer Server unter %1$s</string>
+    <string name="setup_error_other_server_text">Dort antwortet nicht mehr %1$s. Die App hat sich nicht angemeldet. Übernimm den neuen Server nur, wenn du das NAS neu eingerichtet oder ersetzt hast.</string>
+    <string name="setup_error_other_server_accept">Neuen Server übernehmen</string>
+    <string name="setup_error_unsupported_title">Server nicht unterstützt</string>
+    <string name="setup_error_unsupported_text">Der Server spricht nur SMB 1. Die App braucht SMB 2 oder 3.</string>
+    <string name="setup_error_unknown_title">Verbindung fehlgeschlagen</string>
+    <string name="setup_error_unknown_text">Die Verbindung zum Server ist abgebrochen. Versuch es noch einmal.</string>
+
+    <!-- Setup, step 2: choose file -->
+    <string name="browse_title">Datei wählen</string>
+    <string name="browse_connected">Verbunden mit %1$s</string>
+    <string name="browse_connected_details">%1$s, %2$s. Die App merkt sich die Kennung dieses Servers und meldet sich bei keinem anderen an.</string>
+    <string name="browse_encrypted">verschlüsselt</string>
+    <string name="browse_signed">signiert</string>
+    <string name="browse_share_manual">Freigabe nicht in der Liste? Namen eingeben</string>
+    <string name="browse_shares_not_listed">Der Server listet seine Freigaben nicht auf. Gib den Namen der Freigabe von Hand ein.</string>
+    <string name="browse_share_manual_button">Freigabe eingeben</string>
+    <string name="browse_no_shares">Der Server zeigt keine Freigaben. Gib den Namen der Freigabe von Hand ein.</string>
+    <string name="browse_only_kdbx">Angezeigt werden nur Ordner und KDBX-Dateien.</string>
+    <string name="browse_empty">Hier liegen keine KDBX-Dateien.</string>
+    <string name="browse_loading">Lade Ordner …</string>
+    <string name="browse_folder_error">Der Ordner ließ sich nicht öffnen.</string>
+    <string name="browse_pick_hint">Tipp auf eine KDBX-Datei, um sie auszuwählen.</string>
+    <string name="browse_picked">Gewählt: %1$s</string>
+    <string name="browse_use_file">Diese Datei verwenden</string>
+    <string name="browse_save">Speichern</string>
+    <string name="browse_file_meta">%1$s · %2$s</string>
+    <string name="browse_selected">Ausgewählt</string>
+    <plurals name="browse_hidden_files">
+        <item quantity="one">%d andere Datei ist ausgeblendet.</item>
+        <item quantity="other">%d andere Dateien sind ausgeblendet.</item>
+    </plurals>
+
+    <!-- Dialog: enter share name by hand (DS-02 fallback) -->
+    <string name="share_dialog_title">Freigabe öffnen</string>
+    <string name="share_dialog_text">Manche Server listen nicht alle Freigaben auf, zum Beispiel versteckte mit $ am Ende. Dann hier den Namen eingeben.</string>
+    <string name="share_dialog_field">Name der Freigabe</string>
+    <string name="share_dialog_open">Öffnen</string>
+
+    <!-- Setup, step 3 and unlock -->
+    <string name="unlock_loaded_from_share">Vom Share geladen, %1$s</string>
+    <string name="unlock_first_run_info">Die App speichert nicht dein Passwort, sondern einen daraus abgeleiteten Wert, den nur dein Fingerabdruck freigibt. Sie fragt %1$s wieder nach dem Master-Passwort. Das lässt sich in den Einstellungen ändern.</string>
+    <string name="unlock_first_run_fingerprint">Danach mit Fingerabdruck entsperren</string>
+    <string name="unlock_with_fingerprint">Mit Fingerabdruck entsperren</string>
+    <string name="unlock_enter_password">Master-Passwort eingeben</string>
+    <string name="unlock_fingerprint_instead">Doch mit Fingerabdruck</string>
+    <string name="unlock_password_field">Master-Passwort</string>
+    <string name="unlock_button">Entsperren</string>
+    <string name="unlock_error_empty">Bitte das Master-Passwort eingeben.</string>
+    <string name="unlock_error_wrong">Das Master-Passwort passt nicht zu dieser Datei.</string>
+    <string name="unlock_fill_context">Zum Ausfüllen in %1$s</string>
+    <string name="unlock_due_title">Master-Passwort nötig</string>
+    <string name="unlock_due_text">Die App fragt %1$s danach, so ist es eingestellt. Danach reicht wieder der Fingerabdruck.</string>
+    <string name="unlock_invalidated_title">Neuer Fingerabdruck im System</string>
+    <string name="unlock_invalidated_text">Seit ein Fingerabdruck dazugekommen ist, gilt der gespeicherte Schlüssel nicht mehr. Gib einmal das Master-Passwort ein, danach reicht wieder der Fingerabdruck.</string>
+    <string name="unlock_stored_rejected_title">Master-Passwort geändert?</string>
+    <string name="unlock_stored_rejected_text">Mit dem gespeicherten Wert ließ sich die Datei nicht öffnen. Gib das aktuelle Master-Passwort ein, die App merkt es sich neu.</string>
+    <string name="unlock_busy">Datenbank wird geöffnet …</string>
+    <plurals name="every_n_days">
+        <item quantity="one">jeden Tag</item>
+        <item quantity="other">alle %d Tage</item>
+    </plurals>
+
+    <!-- Setup, step 4: system settings -->
+    <string name="system_heading">Noch zwei Einstellungen im System</string>
+    <string name="system_lead">Beides öffnet eine Seite von Android. Danach kommst du hierher zurück.</string>
+    <string name="system_autofill_title">Autofill-Dienst</string>
+    <string name="system_autofill_text">Wähl KeyPass Mobile als Autofill-Dienst. Dann erscheint der Vorschlag „KeyPass Mobile“ in der Tastatur, sobald du in einem Anmeldefeld bist.</string>
+    <string name="system_autofill_button">Autofill-Dienst wählen</string>
+    <string name="system_autofill_done">KeyPass Mobile ist der Autofill-Dienst.</string>
+    <string name="system_notifications_title">Benachrichtigung</string>
+    <string name="system_notifications_text">Solange die App entsperrt ist, zeigt sie „KeyPass Mobile entsperrt“ mit dem Button „Sperren“. So siehst du immer, ob sie offen ist.</string>
+    <string name="system_notifications_button">Benachrichtigungen erlauben</string>
+    <string name="system_notifications_done">Benachrichtigungen sind erlaubt.</string>
+    <string name="system_finish">Fertig</string>
+    <string name="system_later_hint">Was noch fehlt, lässt sich später in den Einstellungen nachholen.</string>
+
+    <!-- Entry list -->
+    <string name="sync_chip_current">Aktuell · vom Share, %1$s</string>
+    <string name="sync_chip_offline">Offline-Kopie · Stand %1$s</string>
+    <string name="sync_chip_syncing">Synchronisiere …</string>
+    <string name="filter_all">Alle</string>
+    <string name="filter_by_group">Nach Gruppe filtern</string>
+    <plurals name="list_count">
+        <item quantity="one">%d Eintrag</item>
+        <item quantity="other">%d Einträge</item>
+    </plurals>
+    <plurals name="list_count_of">
+        <item quantity="one">%1$d von %2$d Eintrag</item>
+        <item quantity="other">%1$d von %2$d Einträgen</item>
+    </plurals>
+    <string name="list_no_match">Kein Eintrag passt zu „%1$s“.</string>
+    <string name="list_empty_vault">Die Datenbank enthält keine Einträge.</string>
+    <string name="row_subline">%1$s · %2$s</string>
+    <string name="banner_other_server_title">Sync gestoppt: anderer Server</string>
+    <string name="banner_other_server_text">Unter %1$s antwortet ein anderer Server. Die App hat sich dort nicht angemeldet.</string>
+    <string name="banner_candidate_title">Neue Version ließ sich nicht öffnen</string>
+    <string name="banner_candidate_text">Die Datei vom Share passt nicht zu diesem Master-Passwort. Geöffnet ist die Offline-Kopie vom %1$s. Hast du das Passwort am PC geändert, sperr die App und entsperr sie mit dem neuen.</string>
+
+    <!-- Copy view (UI-02) -->
+    <string name="detail_username">Benutzername</string>
+    <string name="detail_password">Passwort</string>
+    <string name="detail_password_dots">••••••••••••</string>
+    <string name="detail_password_never_shown">wird nie angezeigt</string>
+    <string name="detail_notes">Notizen</string>
+    <string name="detail_group">Gruppe</string>
+    <string name="detail_http_hint">Diese Seite läuft über HTTP. Dort füllt der Browser nicht automatisch aus, also hier kopieren und dort einfügen.</string>
+    <string name="detail_copy_username">Benutzername kopieren</string>
+    <string name="detail_copy_password">Passwort kopieren</string>
+    <string name="detail_clipboard_note">Kopiertes wird nach %1$d Sekunden gelöscht.</string>
+    <string name="detail_no_username">Kein Benutzername eingetragen</string>
+
+    <!-- Settings (UI-03) -->
+    <string name="settings_title">Einstellungen</string>
+    <string name="settings_section_database">Datenbank</string>
+    <string name="settings_source">SMB-Quelle</string>
+    <string name="settings_source_user">Benutzer %1$s</string>
+    <string name="settings_server">Server</string>
+    <string name="settings_server_remembered">%1$s, gemerkt am %2$s</string>
+    <string name="settings_section_sync">Synchronisation</string>
+    <string name="settings_sync_current">Aktuell</string>
+    <string name="settings_sync_current_text">Version vom Share, geladen %1$s.</string>
+    <string name="settings_sync_offline">Share nicht erreichbar</string>
+    <string name="settings_sync_offline_text">Geöffnet ist die Offline-Kopie vom %1$s.</string>
+    <string name="settings_sync_other_server">Sync gestoppt: anderer Server</string>
+    <string name="settings_sync_background">Im Hintergrund alle 4 Stunden, wenn der Share erreichbar ist.</string>
+    <string name="settings_sync_now">Jetzt synchronisieren</string>
+    <string name="settings_section_unlock">Entsperren</string>
+    <string name="settings_fingerprint">Mit Fingerabdruck</string>
+    <string name="settings_fingerprint_due">Master-Passwort wieder nötig am %1$s</string>
+    <string name="settings_fingerprint_off">Aus. Entsperren nur mit Master-Passwort.</string>
+    <string name="settings_fingerprint_none_enrolled">Im System ist kein Fingerabdruck eingerichtet.</string>
+    <string name="settings_fingerprint_no_hardware">Dieses Gerät hat keinen geeigneten Fingerabdrucksensor.</string>
+    <string name="settings_password_interval">Master-Passwort erneut nötig nach</string>
+    <string name="settings_password_interval_help">Eine längere Frist gilt ab der nächsten Eingabe des Master-Passworts.</string>
+    <string name="settings_auto_lock">Automatisch sperren nach</string>
+    <string name="settings_auto_lock_help">Zeit ohne Nutzung. Beim Wegwischen der App sperrt sie immer sofort.</string>
+    <string name="settings_section_clipboard">Zwischenablage</string>
+    <string name="settings_clipboard">Kopiertes löschen nach</string>
+    <string name="settings_section_system">System</string>
+    <string name="settings_autofill">Autofill-Dienst</string>
+    <string name="settings_autofill_on">KeyPass Mobile ist ausgewählt.</string>
+    <string name="settings_autofill_off">Nicht ausgewählt. Ohne ihn erscheint kein Vorschlag in der Tastatur.</string>
+    <string name="settings_notifications">Benachrichtigung „Entsperrt“</string>
+    <string name="settings_notifications_on">Erlaubt.</string>
+    <string name="settings_notifications_off">Nicht erlaubt. Du siehst nicht, ob die App entsperrt ist.</string>
+    <string name="settings_footer">KeyPass Mobile %1$s</string>
+    <string name="seconds_short">%d s</string>
+    <string name="minutes_short">%d min</string>
+    <plurals name="after_days">
+        <item quantity="one">%d Tag</item>
+        <item quantity="other">%d Tagen</item>
+    </plurals>
+    <string name="today_at">heute um %1$s</string>
+    <string name="date_at">am %1$s</string>
+
+    <!-- Autofill picker (AF-03 to AF-07) -->
+    <string name="picker_fill_into">Ausfüllen in</string>
+    <string name="picker_web_sub">%1$s · %2$s</string>
+    <string name="picker_app_sub">App-Name „%1$s“, dient nur zum Sortieren</string>
+    <string name="picker_app_sub_unknown">App-Name nicht lesbar</string>
+    <string name="picker_matching_web">Passend zu %1$s</string>
+    <string name="picker_matching_app">Passend zur App „%1$s“</string>
+    <string name="picker_matching_app_unknown">Passend zur App</string>
+    <string name="picker_all_entries">Alle Einträge</string>
+    <string name="picker_no_match_web">Kein Eintrag passt zu dieser Seite. Prüf die Adresse, bevor du einen anderen Eintrag wählst.</string>
+    <string name="picker_no_match_app">Kein Eintrag passt zu dieser App. Wähl den richtigen Eintrag unten aus.</string>
+    <string name="picker_match_badge">passt</string>
+
+    <!-- Phishing warning (AF-06) -->
+    <string name="phishing_title">Adresse passt nicht zum Eintrag</string>
+    <string name="phishing_this_page">Diese Seite</string>
+    <string name="phishing_entry_label">„%1$s“</string>
+    <string name="phishing_entry_no_url">keine Adresse</string>
+    <string name="phishing_text">Wenn du nicht sicher bist, dass die Seite echt ist, brich ab.</string>
+    <string name="phishing_fill_anyway">Trotzdem ausfüllen</string>
+
+    <!-- Other server (DS-04) -->
+    <string name="other_server_title">Anderer Server unter %1$s</string>
+    <string name="other_server_text">Der Server meldet eine andere Kennung als beim Einrichten. Die App hat sich deshalb nicht angemeldet und nutzt die Offline-Kopie.</string>
+    <string name="other_server_remembered">Gemerkt</string>
+    <string name="other_server_now">Jetzt</string>
+    <string name="other_server_unknown_name">unbekannt</string>
+    <string name="other_server_advice">Übernimm den neuen Server nur, wenn du das NAS neu eingerichtet oder ersetzt hast.</string>
+    <string name="other_server_accept">Neuen Server übernehmen</string>
+    <string name="other_server_reject">Nicht übernehmen</string>
+
+    <!-- Snackbar messages -->
+    <string name="msg_copied_username">Benutzername kopiert. Wird in %1$d s gelöscht.</string>
+    <string name="msg_copied_password">Passwort kopiert. Wird in %1$d s gelöscht.</string>
+    <string name="msg_clipboard_cleared">Zwischenablage gelöscht.</string>
+    <string name="msg_locked">Gesperrt.</string>
+    <string name="msg_auto_locked">Gesperrt nach %1$s ohne Nutzung.</string>
+    <string name="msg_setup_done_fingerprint">Eingerichtet. Ab jetzt reicht der Fingerabdruck.</string>
+    <string name="msg_setup_done">Eingerichtet.</string>
+    <string name="msg_fingerprint_renewed">Fingerabdruck ist wieder für %1$s aktiv.</string>
+    <string name="msg_sync_no_newer">Keine neuere Version auf dem Share.</string>
+    <string name="msg_sync_updated">Neue Version vom Share geladen.</string>
+    <string name="msg_sync_unreachable">Share nicht erreichbar. Die Offline-Kopie bleibt geöffnet.</string>
+    <string name="msg_sync_other_server">Sync gestoppt: anderer Server.</string>
+    <string name="msg_sync_started">Sync läuft im Hintergrund.</string>
+    <string name="msg_server_accepted">Neuer Server gemerkt. Aktuelle Version vom Share geladen.</string>
+    <string name="msg_share_denied">Kein Zugriff auf „%1$s“ mit %2$s. So soll es sein: Der Benutzer darf nur die Datenbank lesen.</string>
+    <string name="msg_share_not_found">Freigabe „%1$s“ nicht gefunden oder kein Zugriff.</string>
+    <string name="msg_source_saved">Quelle gespeichert.</string>
+    <string name="msg_fingerprint_failed">Fingerabdruck nicht erkannt. Gib das Master-Passwort ein.</string>
+    <plurals name="duration_seconds">
+        <item quantity="one">%d Sekunde</item>
+        <item quantity="other">%d Sekunden</item>
+    </plurals>
+    <plurals name="duration_minutes">
+        <item quantity="one">%d Minute</item>
+        <item quantity="other">%d Minuten</item>
+    </plurals>
+    <plurals name="duration_days">
+        <item quantity="one">%d Tag</item>
+        <item quantity="other">%d Tage</item>
+    </plurals>
+
+    <!-- For the service and notification (wired in the next phase, SE-03, AF-02) -->
+    <string name="notification_channel_unlocked">Entsperrt</string>
+    <string name="notification_unlocked_title">KeyPass Mobile entsperrt</string>
+    <string name="notification_unlocked_text">Sperrt nach %1$s ohne Nutzung.</string>
+    <string name="notification_action_lock">Sperren</string>
+    <string name="autofill_service_label">KeyPass Mobile</string>
+    <string name="autofill_suggestion_title">KeyPass Mobile</string>
+    <string name="biometric_prompt_title">KeyPass Mobile entsperren</string>
+    <string name="biometric_prompt_subtitle_setup">Bestätige deinen Fingerabdruck, um ihn künftig zum Entsperren zu nutzen.</string>
+    <string name="biometric_prompt_negative">Master-Passwort</string>
+</resources>

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<!-- Plain content without KDBX 4 features, imported with keepassxc-cli by create-testdbs.ps1. Test data only. -->
+<KeePassFile>
+	<Meta>
+		<Generator>kpm-testdata</Generator>
+		<DatabaseName>KPM Test Basis</DatabaseName>
+	</Meta>
+	<Root>
+		<Group>
+			<UUID>AAAAAAAAAAAAAAAAAAAAAQ==</UUID>
+			<Name>Root</Name>
+			<Entry>
+				<UUID>AAAAAAAAAAAAAAAAAAAAEA==</UUID>
+				<String><Key>Title</Key><Value>GitHub</Value></String>
+				<String><Key>UserName</Key><Value>kpm-test</Value></String>
+				<String><Key>Password</Key><Value ProtectInMemory="True">gh-Test-Passwort-1</Value></String>
+				<String><Key>URL</Key><Value>https://github.com/login</Value></String>
+				<String><Key>Notes</Key><Value>Testeintrag</Value></String>
+			</Entry>
+			<Entry>
+				<UUID>AAAAAAAAAAAAAAAAAAAAEQ==</UUID>
+				<String><Key>Title</Key><Value>Bäckerei Müller</Value></String>
+				<String><Key>UserName</Key><Value>max.mustermann</Value></String>
+				<String><Key>Password</Key><Value ProtectInMemory="True">Brötchen-42</Value></String>
+				<String><Key>URL</Key><Value>https://www.baeckerei-mueller.example</Value></String>
+				<String><Key>Notes</Key><Value>Größe: XL</Value></String>
+			</Entry>
+			<Group>
+				<UUID>AAAAAAAAAAAAAAAAAAAAAg==</UUID>
+				<Name>Banken</Name>
+				<Entry>
+					<UUID>AAAAAAAAAAAAAAAAAAAAEg==</UUID>
+					<String><Key>Title</Key><Value>Sparkasse</Value></String>
+					<String><Key>UserName</Key><Value>12345678</Value></String>
+					<String><Key>Password</Key><Value ProtectInMemory="True">spk-Test-9</Value></String>
+					<String><Key>URL</Key><Value>https://banking.sparkasse.example</Value></String>
+					<String><Key>Notes</Key><Value></Value></String>
+				</Entry>
+			</Group>
+		</Group>
+	</Root>
+</KeePassFile>

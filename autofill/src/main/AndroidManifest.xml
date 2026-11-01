@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Autofill service (AF-01). Merged into the app manifest. The picker activity
+     it opens is declared by :app, see KpmAutofill.PICKER_ACTIVITY_CLASS.
+     No <queries> and no QUERY_ALL_PACKAGES: the requesting app becomes visible
+     to us through the autofill request (ANFORDERUNGEN section 13). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <service
+            android:name="de.lulurobb.keypassmobile.autofill.KpmAutofillService"
+            android:exported="true"
+            android:label="@string/kpm_autofill_service_label"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/kpm_autofill_service" />
+        </service>
+    </application>
+
+</manifest>
