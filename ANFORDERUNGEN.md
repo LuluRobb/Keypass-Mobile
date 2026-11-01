@@ -15,8 +15,8 @@ Festgelegte Rahmenbedingungen:
 - **Genau eine Datenbank**, Quelle ist eine SMB-Freigabe.
 - Die App ist **nur zum Ausfüllen**: Sie liest die Datenbank, bearbeitet und speichert aber nie etwas. Bearbeitet wird ausschließlich am PC in KeePassXC.
 - Die Offline-Kopie ist **immer nur die vollständige, verschlüsselte Datei**. Einzelne Passwörter oder entschlüsselte Inhalte werden **niemals** zwischengespeichert.
-- Entsperren per **Fingerabdruck** oder Master-Passwort. Spätestens **alle 7 Tage** muss das Master-Passwort eingegeben werden.
-- Automatisch sperren beim Wegwischen der App oder nach 2 Minuten ohne Nutzung.
+- Entsperren per **Fingerabdruck** oder Master-Passwort. Das Master-Passwort muss in einstellbaren Abständen erneut eingegeben werden (Standard **alle 7 Tage**).
+- Automatisch sperren beim Wegwischen der App oder nach einstellbarer Zeit ohne Nutzung (Standard 2 Minuten).
 - Verteilung privat als APK, nicht über den Play Store.
 
 ---
@@ -26,7 +26,7 @@ Festgelegte Rahmenbedingungen:
 | ID | Anforderung | Prio |
 |----|-------------|------|
 | DS-01 | Genau eine Datenbank. In den Einstellungen: Quelle und Zeitpunkt des letzten Syncs | MUSS |
-| DS-02 | **SMB-Freigabe** (Windows-Freigabe, NAS): Host, Freigabe, Pfad, Benutzer, Passwort, Domäne. Nur SMB 2/3, kein SMB 1. Die App braucht nur Leserecht. | MUSS |
+| DS-02 | **SMB-Freigabe** (Windows-Freigabe, NAS): Eingegeben werden nur Host, Benutzer, Passwort und optional Port und Domäne (unter "Erweitert"). Nach dem Verbinden wählt man Freigabe und Datei interaktiv aus: Die App listet die Freigaben des Servers, man öffnet Ordner und tippt die KDBX-Datei an (angezeigt werden nur Ordner und `.kdbx`-Dateien). Den Namen der Freigabe von Hand eingeben nur als Ausweg, wenn der Server sie nicht auflistet. Beim Ändern der Quelle startet die Auswahl im Ordner der aktuellen Datei. Nur SMB 2/3, kein SMB 1. Die App braucht nur Leserecht. | MUSS |
 | DS-03 | Das SMB-Passwort liegt verschlüsselt im Android Keystore, nie im Klartext. Der Schlüssel ist ohne Fingerabdruck nutzbar, damit der Hintergrund-Sync (SY-06) laufen kann. | MUSS |
 | DS-04 | **Server-Identität prüfen:** Beim ersten erfolgreichen Sync merkt sich die App die Server-GUID, die der Server beim Verbindungsaufbau vor der Anmeldung schickt. Weicht sie später ab, bricht die App vor der Anmeldung ab und nutzt die Offline-Kopie. Bei einer legitimen Änderung (z. B. NAS neu aufgesetzt) fragt die App einmal nach. Das verhindert, dass sich die App in einem fremden Netz mit gleichem Adressbereich bei einem fremden Gerät anmeldet. Ohne Einstellungen, ohne SSID, ohne Standortberechtigung. Achtung: Samba bildet die GUID aus dem NetBIOS-Namen des Servers (nicht zufällig), Windows nutzt eine zufällige GUID. Bei Samba schützt die Prüfung daher nur, wenn der Servername unverwechselbar ist. | MUSS |
 | DS-05 | Kurzes Verbindungs-Timeout (wenige Sekunden), damit ein nicht erreichbarer Share nichts blockiert | MUSS |
@@ -50,7 +50,7 @@ Der Share ist unterwegs ohne VPN nicht erreichbar. Dafür gibt es die Offline-Ko
 | SY-03 | Beim Entsperren öffnet die App sofort die lokale Datei (Kandidat aus SY-06, sonst Offline-Kopie), ohne vorher den Share zu prüfen. | MUSS |
 | SY-04 | Nach dem Entsperren prüft die App im Hintergrund, ob die Datei auf dem Share neuer ist (Änderungsdatum, Größe). Wenn ja, lädt sie die Datei vollständig in eine temporäre Datei, entsperrt sie mit dem Schlüssel aus dem Arbeitsspeicher und zeigt dann die neue Version an. | MUSS |
 | SY-05 | Eine neue Datei ersetzt die Offline-Kopie erst, wenn sie sich erfolgreich entsperren ließ. So entsteht weder durch einen Verbindungsabbruch noch durch eine untergeschobene Datei eine unbrauchbare Offline-Kopie. | MUSS |
-| SY-06 | **Hintergrund-Sync:** Ein periodischer Job lädt alle paar Stunden eine neuere Datei, wenn der Share erreichbar ist. Er kann sie nicht entsperren und legt sie deshalb als Kandidat neben die Offline-Kopie. Beim nächsten Entsperren wird zuerst der Kandidat versucht. Gelingt das, ersetzt er die Offline-Kopie. | MUSS |
+| SY-06 | **Hintergrund-Sync:** Ein periodischer Job lädt alle 4 Stunden eine neuere Datei, wenn der Share erreichbar ist. Er kann sie nicht entsperren und legt sie deshalb als Kandidat neben die Offline-Kopie. Beim nächsten Entsperren wird zuerst der Kandidat versucht. Gelingt das, ersetzt er die Offline-Kopie. | MUSS |
 | SY-07 | Manueller "Jetzt synchronisieren"-Button. Ist die Datenbank entsperrt, läuft er wie SY-04, sonst wie SY-06. | MUSS |
 | SY-08 | Anzeige, ob die aktuelle Version vom Share oder eine ältere Offline-Kopie geöffnet ist, inkl. Zeitpunkt des letzten erfolgreichen Syncs | MUSS |
 
@@ -71,10 +71,10 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 | ID | Anforderung | Prio |
 |----|-------------|------|
 | EN-01 | Entsperren durch Eintippen des Master-Passworts. Im Eingabefeld sind Vorschläge, Autokorrektur und das Lernen der Tastatur abgeschaltet (Android: `IME_FLAG_NO_PERSONALIZED_LEARNING`), damit die Tastatur sich das Passwort nicht merkt. | MUSS |
-| EN-02 | Entsperren per **Fingerabdruck**. Nur starke Biometrie (Klasse 3), die Gesichtserkennung des A55 zählt nicht dazu. Display-PIN oder Muster sind kein Ausweichweg. Der Ausweichweg ist immer das Master-Passwort. | MUSS |
+| EN-02 | Entsperren per **Fingerabdruck**. Nur starke Biometrie (Klasse 3), die Gesichtserkennung des A55 zählt nicht dazu. Display-PIN oder Muster sind kein Ausweichweg. Der Ausweichweg ist immer das Master-Passwort. Der Fingerabdruck-Dialog öffnet sich beim Entsperren sofort, Abbrechen führt zur Passworteingabe. | MUSS |
 | EN-03 | Gespeichert wird nicht das Master-Passwort, sondern sein SHA-256-Hash (die Passwort-Komponente des KDBX-Schlüssels). Er wird mit einem Schlüssel im Android Keystore verschlüsselt, den das System nur nach erfolgreichem Fingerabdruck freigibt (BiometricPrompt mit CryptoObject, keine reine Ja/Nein-Abfrage). | MUSS |
 | EN-04 | Wird ein neuer Fingerabdruck registriert, wird der Keystore-Schlüssel ungültig. Danach muss einmal das Master-Passwort eingegeben werden. | MUSS |
-| EN-05 | Spätestens **alle 7 Tage** muss das Master-Passwort eingegeben werden. Die App prüft das selbst, zusätzlich bekommt der Keystore-Schlüssel bei jeder Passworteingabe ein Ablaufdatum in 7 Tagen. Nach Ablauf wird der gespeicherte Wert gelöscht. | MUSS |
+| EN-05 | Das Master-Passwort muss nach einer einstellbaren Frist erneut eingegeben werden: 1, 3, 7 oder 14 Tage, Standard **7 Tage**. Die App prüft das selbst, zusätzlich bekommt der Keystore-Schlüssel bei jeder Passworteingabe ein Ablaufdatum nach dieser Frist. Eine kürzere Frist greift sofort, eine längere erst ab der nächsten Passworteingabe, weil sich das Ablaufdatum des Schlüssels nicht verlängern lässt. Nach Ablauf wird der gespeicherte Wert gelöscht. | MUSS |
 | EN-06 | Lässt sich die Datei mit dem gespeicherten Wert nicht öffnen (z. B. weil das Master-Passwort am PC geändert wurde), fragt die App nach dem Master-Passwort und speichert den neuen Wert. Lässt sich ein Kandidat (SY-06) mit dem eingegebenen Passwort nicht öffnen, öffnet die App die Offline-Kopie und weist darauf hin. | MUSS |
 
 ## 5. Ausfüllen ohne Zwischenablage (Kernfunktion)
@@ -82,14 +82,14 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 | ID | Anforderung | Prio |
 |----|-------------|------|
 | AF-01 | **Android Autofill-Dienst** (AutofillService): Die App ist als Autofill-Anbieter im System auswählbar und füllt Benutzername und Passwort in Browser und Apps ein. | MUSS |
-| AF-02 | Bei Anmeldefeldern zeigt der Dienst immer einen Vorschlag "KeyPass Mobile", unabhängig davon, ob es passende Einträge gibt. Er erscheint oben in der Tastatur (Inline-Vorschläge, Android 11+), sonst als Liste unter dem Feld. | MUSS |
-| AF-03 | Ein Tipp auf den Vorschlag öffnet die Eintragsliste (UI-01). Ist die Datenbank gesperrt, kommt zuerst das Entsperren. | MUSS |
-| AF-04 | Ein Tipp auf einen Eintrag trägt sofort Benutzername und Passwort ein und schließt das Fenster. Werte gehen erst nach der Auswahl an das System, nie vorab für mehrere Einträge. | MUSS |
+| AF-02 | Bei Anmeldefeldern zeigt der Dienst immer einen Vorschlag "KeyPass Mobile" ohne weiteren Zusatz, unabhängig davon, ob es passende Einträge gibt. Er erscheint oben in der Tastatur (Inline-Vorschläge, Android 11+), sonst als Liste unter dem Feld. | MUSS |
+| AF-03 | Ein Tipp auf den Vorschlag öffnet die Eintragsliste (UI-01) im Vollbild. Oben steht, wohin ausgefüllt wird (AF-06, AF-07). Ist die Datenbank gesperrt, kommt zuerst das Entsperren. | MUSS |
+| AF-04 | Ein Tipp auf einen Eintrag trägt sofort Benutzername und Passwort ein und schließt das Fenster. Werte gehen erst nach der Auswahl an das System, nie vorab für mehrere Einträge. Auch bei genau einem passenden Eintrag erscheint immer die Liste, es wird nie automatisch ausgefüllt. | MUSS |
 | AF-05 | Passende Einträge stehen ganz oben. Im Browser nach der Domain der Seite: gleiche registrierbare Domain inkl. Subdomains, ermittelt über eine mitgelieferte Public-Suffix-Liste, ohne Netzwerkzugriff. In Apps nach dem App-Namen, abgeglichen mit Titel und URL der Einträge. In KeePassXC müssen keine Zuordnungen gepflegt werden. | MUSS |
 | AF-06 | **Phishing-Schutz im Browser:** Wählt man einen Eintrag, dessen URL nicht zur Domain der Seite passt, erscheint eine deutliche Warnung, die bestätigt werden muss. Passende Einträge werden ohne Rückfrage ausgefüllt. | MUSS |
 | AF-07 | In Apps steht oben im Fenster der Paketname der App (z. B. `com.paypal.android.p2pmobile`), damit sichtbar ist, wohin ausgefüllt wird. Der App-Name dient nur zum Sortieren, weil jede App ihn frei wählen kann. Für Apps gibt es keine Warnung. | MUSS |
 | AF-08 | Kein Angebot, neue Zugangsdaten zu speichern, da die App nichts speichert | MUSS |
-| AF-09 | **Zwischenablage als letzter Ausweg:** In der direkt geöffneten App (UI-02) lassen sich Benutzername und Passwort auf ausdrücklichen Klick kopieren. Der Inhalt wird als sensibel markiert und nach einstellbarer Zeit automatisch gelöscht. Das reicht auch für Anmeldeseiten über reines HTTP (z. B. Router), auf denen Brave keinen Autofill-Dienst anfragt. | MUSS |
+| AF-09 | **Zwischenablage als letzter Ausweg:** In der direkt geöffneten App (UI-02) lassen sich Benutzername und Passwort auf ausdrücklichen Klick kopieren. Der Inhalt wird als sensibel markiert und nach einstellbarer Zeit automatisch gelöscht (15, 30 oder 60 Sekunden, Standard 30). Das reicht auch für Anmeldeseiten über reines HTTP (z. B. Router), auf denen Brave keinen Autofill-Dienst anfragt. | MUSS |
 | AF-10 | **Eigene Tastatur** (Input Method) als Plan B: Eintrag wählen, dann Benutzername und Passwort per Tastendruck eintippen. Wird MUSS, falls Autofill in Brave im Prototyp nicht zuverlässig funktioniert. | SOLL |
 | AF-11 | Der Dienst füllt nur sichtbare Felder. Versteckte Felder (z. B. ein noch verborgener zweiter Anmeldeschritt) bleiben leer. | MUSS |
 
@@ -97,17 +97,18 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 
 | ID | Anforderung | Prio |
 |----|-------------|------|
-| UI-01 | **Eine Ansicht für App und Autofill:** Liste aller Einträge mit Volltextsuche über Titel, Benutzername, URL, Notizen, Tags (nur im Arbeitsspeicher, kein gespeicherter Index). Im Autofill stehen darüber die passenden Einträge (AF-05). | MUSS |
-| UI-02 | Direkt geöffnet: Ein Tipp auf einen Eintrag öffnet eine knappe Ansicht mit Titel, Benutzername und den Buttons "Benutzername kopieren" und "Passwort kopieren" (AF-09). Das Passwort wird nicht angezeigt. | MUSS |
-| UI-03 | Einstellungen: SMB-Quelle, Sync-Status mit "Jetzt synchronisieren" (SY-07, SY-08), Fingerabdruck an/aus, Zeit bis zum Löschen der Zwischenablage | MUSS |
+| UI-01 | **Eine Ansicht für App und Autofill:** Liste aller Einträge mit Volltextsuche über Titel, Benutzername, URL, Notizen, Tags und Gruppe (nur im Arbeitsspeicher, kein gespeicherter Index). Die Liste ist nach Gruppen gegliedert: ein Abschnitt pro Gruppe mit dem Gruppenpfad als Überschrift (inkl. Untergruppen), darin A–Z, darüber Filter nach Hauptgruppe. Suchergebnisse erscheinen als eine Liste mit der Gruppe in jeder Zeile. Kein aufklappbarer Gruppenbaum, keine Sortierung nach zuletzt benutzt (die App speichert nichts über die Nutzung). Im Autofill stehen darüber die passenden Einträge (AF-05). | MUSS |
+| UI-02 | Direkt geöffnet: Ein Tipp auf einen Eintrag öffnet eine knappe Ansicht mit Icon, Titel, Adresse (URL), Gruppe, Benutzername, Notizen und den Buttons "Benutzername kopieren" und "Passwort kopieren" (AF-09). Das Passwort wird nicht angezeigt. | MUSS |
+| UI-03 | Einstellungen: SMB-Quelle, Sync-Status mit "Jetzt synchronisieren" (SY-07, SY-08), Fingerabdruck an/aus, Frist für das Master-Passwort (EN-05), Zeit bis zur automatischen Sperre (SE-02), Zeit bis zum Löschen der Zwischenablage | MUSS |
 | UI-04 | Hell/Dunkel nach Systemeinstellung. Sprache nur Deutsch. | SOLL |
+| UI-05 | Eintrags-Icons aus der Datenbank anzeigen: eigene Icons (z. B. in KeePassXC heruntergeladene Favicons) direkt aus der KDBX, Standard-Icons (KeePass-Icon-Nummern) über eine eigene Zuordnung zu Material-Symbolen. Nichts wird aus dem Netz nachgeladen (SE-06). | MUSS |
 
 ## 7. Sicherheit
 
 | ID | Anforderung | Prio |
 |----|-------------|------|
 | SE-01 | **Sperren beim Wegwischen** aus der App-Übersicht oder bei Prozessende: Die entschlüsselte Datenbank wird verworfen, danach muss neu entsperrt werden. | MUSS |
-| SE-02 | **Automatisch sperren nach 2 Minuten** ohne Nutzung. Als Nutzung zählen Aktionen in der App sowie Autofill- und Tastatur-Vorgänge. Das gilt auch, wenn die App im Hintergrund liegt. | MUSS |
+| SE-02 | **Automatisch sperren** nach einstellbarer Zeit ohne Nutzung: 30 Sekunden, 1, 2 oder 5 Minuten, Standard **2 Minuten**. Als Nutzung zählen Aktionen in der App sowie Autofill- und Tastatur-Vorgänge. Das gilt auch, wenn die App im Hintergrund liegt. | MUSS |
 | SE-03 | **Vordergrunddienst, solange entsperrt:** Benachrichtigung "KeyPass Mobile entsperrt" mit Button "Sperren". Der Dienst sorgt dafür, dass SE-01, SE-02 und das Löschen der Zwischenablage (AF-09) auch dann greifen, wenn Android die App im Hintergrund einfriert. Nach dem Sperren verschwindet die Benachrichtigung. | MUSS |
 | SE-04 | Entschlüsselte Inhalte nie auf Disk, nur im Arbeitsspeicher (SY-01, SY-02). Solange entsperrt, liegt auch der Passwort-Hash im Arbeitsspeicher (für SY-04). Beim Sperren alle Referenzen verwerfen. Kotlin-Strings lassen sich nicht zuverlässig überschreiben, daher wo möglich `ByteArray`/`CharArray` nutzen und nach Gebrauch überschreiben. | MUSS |
 | SE-05 | Screenshots und die Vorschau in der App-Übersicht unterbinden (FLAG_SECURE), auch im Autofill-Fenster | MUSS |
@@ -120,7 +121,7 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 **Wovor die App schützt:**
 
 - Verlorenes oder gestohlenes, gesperrtes Handy
-- Jemand, der kurz das entsperrte Handy in der Hand hat (2-Minuten-Sperre, Fingerabdruck)
+- Jemand, der kurz das entsperrte Handy in der Hand hat (automatische Sperre, Fingerabdruck)
 - Phishing-Seiten im Browser (AF-06)
 - Anmeldung an fremden SMB-Geräten in fremden Netzen (DS-04)
 
@@ -146,9 +147,10 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 - **Autofill in Brave (größtes Risiko):** Brave reicht Autofill ab Version 1.79.119 an fremde Dienste weiter, wenn man in Brave "Autofill using another service" wählt und Brave neu startet. In der Brave-Community gibt es aber Berichte, dass Passwortmanager trotzdem nicht erscheinen. Deshalb kommt der Autofill-Prototyp zuerst (Abschnitt 10). Plan B ist die eigene Tastatur (AF-10).
 - **Inline-Vorschläge:** Samsung Keyboard unterstützte die Inline-API zumindest früher. Im Prototyp prüfen. Ohne Unterstützung zeigt Android den Vorschlag als Liste unter dem Feld.
 - **KDBX in Kotlin:** kotpass 0.13.0 (MIT) liest KDBX 3.1, 4.0 und 4.1 mit Argon2d, Argon2id, AES-KDF sowie AES-256, ChaCha20 und Twofish, inkl. zusätzlicher URLs (`KP2A_URL*`), Tags und eigener Felder (im Prototyp mit von KeePassXC 2.7.11 geschriebenen Dateien getestet). Einschränkungen: Feldwerte kommen als String, Schutz im Speicher nur per XOR. Wie aktiv kotpass gepflegt wird, ist noch nicht geprüft.
+- **Gruppen und Icons (UI-01, UI-05):** kotpass bildet laut API den Gruppenbaum, die Standard-Icon-Nummer und eigene Icons ab. Im Prototyp noch nicht geprüft, beim MVP mit einer echten KeePassXC-Datei testen.
 - **Argon2:** kotpass rechnet Argon2 in reinem Kotlin und single-threaded, auf dem PC gut 4x langsamer als KeePassXC (KeePassXC-Standard: Argon2d, 64 MiB, Parallelität 4, Iterationen auf 1 s am PC kalibriert). Daher natives Argon2 (argon2kt 1.6.0, MIT, JNI) über die austauschbare KDF-Schnittstelle von kotpass einhängen. Ob 2 Sekunden auf dem A55 erreichbar sind, zeigt die Messung mit der echten Datei.
 - **Öffnen per Hash (EN-03):** kotpass hat keine eigene API dafür, akzeptiert den 32-Byte-SHA-256-Hash aber als Schlüsseldatei-Komponente. Der zusammengesetzte Schlüssel ist dann identisch (getestet mit 3.1, 4.0, 4.1). Gilt nur für Datenbanken mit reinem Passwort. Die App sollte immer selbst hashen und über den Hash öffnen, weil kotpass beim Öffnen per Passwort eine unbereinigte Kopie hinterlässt.
-- **SMB:** `smbj` 0.15.0 (SMB 2/3). Die Server-GUID steht nach dem Verbindungsaufbau und vor der Anmeldung bereit, ein Abbruch an dieser Stelle sendet nachweislich keine Anmeldedaten (Samba-Log geprüft). Signierung verlangen und Verschlüsselung nutzen, wenn angeboten, ist der Standard (nur AES-128). Unter Android über BouncyCastle (MD4 für NTLM). `smbj` wandelt das Passwort intern in einen String um (SE-04 nur eingeschränkt erfüllbar).
+- **SMB:** `smbj` 0.15.0 (SMB 2/3). Die Server-GUID steht nach dem Verbindungsaufbau und vor der Anmeldung bereit, ein Abbruch an dieser Stelle sendet nachweislich keine Anmeldedaten (Samba-Log geprüft). Signierung verlangen und Verschlüsselung nutzen, wenn angeboten, ist der Standard (nur AES-128). Unter Android über BouncyCastle (MD4 für NTLM). `smbj` wandelt das Passwort intern in einen String um (SE-04 nur eingeschränkt erfüllbar). Ordner einer Freigabe auflisten kann `smbj` selbst. Die Liste der Freigaben braucht dagegen einen RPC-Aufruf (SRVSVC NetShareEnum), den `smbj` nicht mitbringt. Kandidat dafür ist `smbj-rpc` von Rapid7 (Lizenz und Pflegezustand prüfen). Die Server-GUID merkt sich die App schon bei dieser ersten Verbindung (DS-04).
 - **Biometrie:** BiometricPrompt mit CryptoObject und `BIOMETRIC_STRONG`. Keystore-Schlüssel mit `setUserAuthenticationRequired(true)`, `setInvalidatedByBiometricEnrollment(true)` und Ablaufdatum (`setKeyValidityForConsumptionEnd`). StrongBox nutzen, wenn verfügbar.
 - **Hintergrund:** Vordergrunddienst für Sperre, Zwischenablage und `onTaskRemoved` (Wegwischen erkennen). Ab Android 14 braucht er einen Diensttyp; ohne Play Store ist `specialUse` unproblematisch. Hintergrund-Sync über WorkManager.
 - **App-Namen:** Für den Abgleich nach App-Namen (AF-05) muss die App den Namen der anfragenden App auslesen können. Prüfen, ob dafür Package Visibility (Android 11+) nötig ist. Ohne Play Store wäre `QUERY_ALL_PACKAGES` unproblematisch.
@@ -162,10 +164,10 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
    - Alles in einer Test-App mit rein zweckmäßiger Oberfläche (Eingabefelder, Buttons, Textausgabe). Die UI wird erst nach den Tests gemeinsam geplant.
 1. **MVP (alle MUSS-Anforderungen):**
    - SMB-Quelle mit Server-Prüfung, Offline-Kopie, Kandidat, Hintergrund-Sync und "Jetzt synchronisieren"
-   - Entsperren per Fingerabdruck oder Master-Passwort, Master-Passwort alle 7 Tage
+   - Entsperren per Fingerabdruck oder Master-Passwort, Master-Passwort nach einstellbarer Frist
    - Autofill-Vorschlag "KeyPass Mobile" mit Eintragsliste, passenden Einträgen oben und Phishing-Warnung
    - Zwischenablage-Fallback mit automatischem Löschen
-   - Auto-Sperre (Wegwischen / 2 Minuten) über Vordergrunddienst
+   - Auto-Sperre (Wegwischen / einstellbare Zeit ohne Nutzung) über Vordergrunddienst
 2. **Stufe 2:**
    - Eigene Tastatur (falls sie nicht schon als Plan B in den MVP gerutscht ist)
    - "Verbindung testen", SMB-Verschlüsselung/Signierung
@@ -177,7 +179,7 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 - iOS, Veröffentlichung im Play Store, Desktop-Versionen
 - Bearbeiten, Zurückschreiben, Zusammenführen, Speichern neuer Zugangsdaten, Passwortgenerator (die App ist nur zum Ausfüllen)
 - Mehrere Datenbanken, mehrere Nutzer
-- Anzeigen von Passwörtern, Gruppenbaum, Anhänge, Eintragshistorie
+- Anzeigen von Passwörtern, aufklappbarer Gruppenbaum (Gruppen nur zur Gliederung, UI-01), Anhänge, Eintragshistorie
 - TOTP (wird nicht genutzt)
 - Entsperren per Display-PIN, Muster oder Gesichtserkennung
 - Zuordnung von Apps über `androidapp://`-URLs in der Datenbank
@@ -230,4 +232,4 @@ Nach dem Emulatortest entschieden:
 
 Nach den Prototypen:
 
-- Gestaltung der Oberfläche (Eintragsliste, Entsperren, Kopier-Ansicht, Einstellungen) gemeinsam planen.
+- Gestaltung der Oberfläche: erledigt am 31.10.2026. Klickbarer UI-Entwurf mit allen Bildschirmen und Entscheidungen: https://claude.ai/artifact/7efcpsCWoK55cPQBWFNmq7 (privat). Die Entscheidungen stehen in den Anforderungen oben (DS-02, EN-02, EN-05, AF-02 bis AF-04, AF-09, UI-01 bis UI-05, SE-02, SY-06).
