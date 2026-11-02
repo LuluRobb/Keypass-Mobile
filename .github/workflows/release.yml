@@ -170,7 +170,10 @@ jobs:
 
   # Reports the resolved Gradle dependencies to GitHub so that Dependabot alerts (SE-10)
   # also cover the version catalog and transitive dependencies. GitHub cannot read
-  # libs.versions.toml on its own.
+  # libs.versions.toml on its own. Only what ships in the release APK is reported:
+  # releaseRuntimeClasspath of :app, which contains all modules and their libraries.
+  # Build tools (Android Gradle Plugin, 'classpath'), test and debug-only libraries
+  # never reach the phone and are left out.
   dependencies:
     name: Submit dependencies
     runs-on: ubuntu-latest
@@ -193,3 +196,5 @@ jobs:
           # Open-source cache on GitHub Actions cache, not the commercial default.
           cache-provider: basic
           dependency-graph: generate-and-submit
+          dependency-graph-include-projects: "^:app$"
+          dependency-graph-include-configurations: "^releaseRuntimeClasspath$"
