@@ -228,6 +228,13 @@ fun SettingsScreen(
                 onSelect = onClipboardChange,
                 label = { stringResource(R.string.seconds_short, it) },
             )
+            // Keyboard clipboard histories ignore the sensitive flag and the deletion.
+            Text(
+                stringResource(R.string.settings_clipboard_keyboard_hint),
+                modifier = Modifier.padding(start = ScreenPadding + 40.dp, end = ScreenPadding, top = 4.dp, bottom = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = scheme.onSurfaceVariant,
+            )
 
             SectionLabel(stringResource(R.string.settings_section_system))
             SettingsRow(

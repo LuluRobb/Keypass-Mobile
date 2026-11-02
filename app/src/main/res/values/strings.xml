@@ -184,6 +184,7 @@
     <string name="settings_auto_lock">Automatisch sperren nach</string>
     <string name="settings_section_clipboard">Zwischenablage</string>
     <string name="settings_clipboard">Kopiertes löschen nach</string>
+    <string name="settings_clipboard_keyboard_hint">Manche Tastaturen, etwa die Samsung-Tastatur, behalten Kopiertes in einem eigenen Verlauf, den die App nicht löschen kann. Den Verlauf dort abschalten oder Autofill nutzen.</string>
     <string name="settings_section_system">System</string>
     <string name="settings_autofill">Autofill-Dienst</string>
     <string name="settings_autofill_on">KeyPass Mobile ist ausgewählt.</string>

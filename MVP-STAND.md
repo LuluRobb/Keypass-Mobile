@@ -27,13 +27,14 @@ Release und CI: Jeder Push auf `main` startet `.github/workflows/release.yml`. D
 
 ## Offene Punkte
 
-- Samsung-Tastatur: Der Zwischenablage-Verlauf der Tastatur behält kopierte Passwörter; die App kann ihn nicht löschen. Abhilfe: Verlauf in der Samsung-Tastatur abschalten, Gboard nutzen oder Autofill statt Kopieren.
+- Samsung-Tastatur: Der Zwischenablage-Verlauf der Tastatur behält kopierte Passwörter; die App kann ihn nicht löschen. Abhilfe: Verlauf in der Samsung-Tastatur abschalten, Gboard nutzen oder Autofill statt Kopieren. Seit 03.11.2026 steht ein Hinweis dazu in den Einstellungen unter "Kopiertes löschen nach".
 - Idee, bewusst nicht umgesetzt: nach mehreren falschen Fingerabdrücken (Sperre durch Android) das Master-Passwort verlangen.
-- kotpass: geschützte Werte und Argon2-Hook nur per Reflection erreichbar (Tests schlagen bei einem Update fehl). R8 ist aus; falls aktiviert, Keep-Regeln aus `kdbx` prüfen.
+- kotpass: geschützte Werte und Argon2-Hook nur per Reflection erreichbar (Tests schlagen bei einem Update fehl).
+- R8 ist seit 03.11.2026 für den Release-Build an (Verkleinern und Optimieren, ohne Umbenennen: `-dontobfuscate`), die Release-APK ist dadurch von 34,5 auf 6,1 MB geschrumpft. Die Keep-Regeln stehen beim jeweiligen Modul: `kdbx` (kotpass), `smb` (smbj-Ereignisbus mbassador), `platform` (argon2kt). Die Unit-Tests laufen ohne R8, deshalb nach Updates dieser Bibliotheken die Release-APK im Emulator prüfen. Zeilennummern in Stacktraces sind ohne `mapping.txt` nicht exakt; die Datei wird bisher nicht pro Release aufbewahrt. Weitere Ersparnis wäre mit ABI-Splits möglich (argon2 liegt für 4 ABIs bei).
 - Freigaben auflisten nur gegen Samba getestet, noch nicht gegen das echte NAS.
 - Autofill: Felder mit `opacity:0` gelten als sichtbar.
-- Compose-Textfelder (Host, Benutzer, Suche) werden fremden Autofill-Diensten angeboten; unser Dienst ignoriert die eigene App.
+- Compose-Textfelder (Host, Benutzer, Port, Suche, Freigabename) werden fremden Autofill-Diensten samt Inhalt gemeldet; unser Dienst ignoriert die eigene App, die Passwortfelder (`SecretField`) sind ausgeschlossen. Ein Ausschluss über `importantForAutofill` am Fenster wirkt nicht: Compose UI 1.11 meldet Textfelder direkt an den AutofillManager (im Emulator geprüft am 03.11.2026, deshalb wieder entfernt). Mögliche Lösungen: die Felder wie `SecretField` als klassisches `EditText` einbetten oder ihre Autofill-Semantik entfernen. Entscheidung offen.
 - SE-09 (Sperren bei Bildschirm aus) bewusst zurückgestellt.
-- Gerätetests offen für: Biometrie-Dialog im Autofill-Fenster darf die Anfrage nicht abbrechen; Löschen des Passwortpuffers (SE-04) nach dem Verlassen des Eingabefelds.
-- Autofill-Testseite im Browser nur auf dem echten Handy testbar (Chrome im Emulator hat keine Option für fremde Autofill-Dienste, Brave ist dort nicht installiert).
+- Gerätetests auf dem A55 offen für: Biometrie-Dialog im Autofill-Fenster darf die Anfrage nicht abbrechen (im Emulator am 03.11.2026 bestanden); Löschen des Passwortpuffers (SE-04) nach dem Verlassen des Eingabefelds.
+- Autofill-Testseite im Browser: im Emulator mit Brave 1.98 getestet (03.11.2026, inklusive Phishing-Warnung und gesperrtem Start), auf dem A55 noch offen. Chrome im Emulator hat keine Option für fremde Autofill-Dienste.
 - Testumgebung Emulator: Samba-Container `kpm-e2e-samba` (Image dockurr/samba, Host-Port 14460, im Emulator 10.0.2.2:14460, Benutzer wie in `SambaContainer.kt`).
