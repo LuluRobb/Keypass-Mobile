@@ -8,6 +8,8 @@ Der erste Test mit einem Debug-APK auf dem echten Samsung Galaxy A55 ist erfolgt
 
 Gradle-Root ist das Repo, Build mit `JAVA_HOME=C:\Program Files\Android\Android Studio\jbr` (JDK 25.0.3), Paket `de.lulurobb.keypassmobile`. Emulator: AVD `kpm_api36` (API 36, google_apis x86_64, pixel_8). Für die Samba-Tests wird Docker Desktop benötigt. Der Prototyp in `prototype/` ist ein eigener Build und bleibt unverändert.
 
+Release und CI: Jeder Push auf `main` startet `.github/workflows/release.yml`. Der Workflow führt die Tests aus, baut die signierte Release-APK und veröffentlicht sie als GitHub-Release `build-N` (als "Latest" markiert) mit dem Namen `Keypass-Mobile-<versionName mit Bindestrichen>.apk`. Pull Requests prüft `.github/workflows/pr.yml` mit Tests und einem unsignierten Release-Build. Der Release-Schlüssel (`release.jks`, Alias `keypass-mobile`, PKCS12) liegt auf diesem PC in `%USERPROFILE%\.keypass-mobile\`, das Passwort in `keystore.properties` im Repo-Root (nicht eingecheckt). Für GitHub liegen beide als Secrets `KPM_KEYSTORE_BASE64` und `KPM_KEYSTORE_PASSWORD` vor. Ohne `keystore.properties` und ohne `KPM_*`-Variablen bleibt der lokale Release-Build unsigniert.
+
 | Modul | Inhalt | Stand |
 |-------|--------|-------|
 | `:model` | Gemeinsame Typen: `Vault`, `VaultEntry`, `EntrySection`, `FillTarget` | fertig |
@@ -20,7 +22,7 @@ Gradle-Root ist das Repo, Build mit `JAVA_HOME=C:\Program Files\Android\Android 
 
 ## Nächste Schritte
 
-1. Signiertes APK für das A55: Release-Schlüssel einmal anlegen und auf beiden PCs gleich verwenden. Bis dahin Debug-Build, Updates nur vom selben PC.
+1. Release-APK aus den GitHub-Releases auf dem A55 installieren. Der Debug-Build ist mit einem anderen Schlüssel signiert und muss vorher einmal deinstalliert werden. Für lokale Release-Builds auf dem zweiten PC `release.jks` und `keystore.properties` dorthin kopieren.
 2. Weitere Tests auf dem A55 gegen das echte NAS, inklusive Autofill im Browser (Brave) mit `autofill/testpages/login-steps.html`.
 
 ## Offene Punkte
