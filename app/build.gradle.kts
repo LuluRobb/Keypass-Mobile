@@ -69,7 +69,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8: code shrinking and optimization plus resource shrinking. No obfuscation
+            // (see proguard-rules.pro). Keep rules live next to the code that needs them:
+            // consumer-rules.pro of the Android libraries, META-INF/proguard/*.pro in the jars
+            // of the pure Kotlin modules.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
