@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import de.lulurobb.keypassmobile.ui.components.SecretInput
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -79,6 +80,15 @@ sealed interface PasswordReason {
     data object StoredKeyRejected : PasswordReason
 }
 
+/** The local database cannot be opened at all; shown as a notice instead of the unlock controls. */
+enum class UnlockProblem {
+    /** No offline copy on the device yet (action: sync). */
+    NoDatabase,
+
+    /** The offline copy is damaged (actions: sync, choose the source again). */
+    Corrupt,
+}
+
 enum class PasswordError {
     Empty,
 
@@ -89,8 +99,8 @@ enum class PasswordError {
 /** Extra content when the unlock screen is step 3 of the first-run setup. */
 data class FirstRunUnlock(
     val step: SetupStep,
-    /** Size of the file just loaded from the share. */
-    val fileSizeBytes: Long,
+    /** Size of the file just loaded from the share; null (e.g. after process death) hides the line. */
+    val fileSizeBytes: Long?,
     /** Interval for the master password (EN-05), for the explanation. */
     val passwordIntervalDays: Int,
     /** State of the switch "Danach mit Fingerabdruck entsperren". */
@@ -113,6 +123,8 @@ data class UnlockState(
     val fillTarget: FillTarget? = null,
     /** Set during the first-run setup (step 3). */
     val firstRun: FirstRunUnlock? = null,
+    /** Set when the database cannot be opened: hides the password field and the fingerprint button. */
+    val problem: UnlockProblem? = null,
 )
 
 /**
@@ -131,11 +143,14 @@ fun UnlockScreen(
     onFingerprintWantedChange: (Boolean) -> Unit = {},
     onBack: () -> Unit = {},
     onCancelFill: () -> Unit = {},
+    onSyncNow: () -> Unit = {},
+    onChooseSource: () -> Unit = {},
     message: UiMessage? = null,
     onMessageDismissed: () -> Unit = {},
 ) {
     val first = state.firstRun
     val showPassword = state.mode == UnlockMode.Password || first != null
+    val problem = state.problem
     val edited by rememberUpdatedState(onPasswordEdited)
     LaunchedEffect(password) {
         snapshotFlow { password.length }.drop(1).collect { edited() }
@@ -174,7 +189,11 @@ fun UnlockScreen(
                     ) {
                         UnlockHead(state)
                         state.fillTarget?.let { FillContext(it) }
-                        ReasonNotice(state.passwordReason)
+                        if (problem != null) {
+                            ProblemNotice(problem, onSyncNow, onChooseSource)
+                        } else {
+                            ReasonNotice(state.passwordReason)
+                        }
                         if (first != null) {
                             Notice(
                                 tone = NoticeTone.Neutral,
@@ -195,7 +214,9 @@ fun UnlockScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    if (!showPassword) {
+                    if (problem != null) {
+                        // The notice above carries the actions.
+                    } else if (!showPassword) {
                         BigButton(
                             text = stringResource(R.string.unlock_with_fingerprint),
                             onClick = onFingerprint,
@@ -254,9 +275,9 @@ private fun UnlockHead(state: UnlockState) {
             style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        state.firstRun?.let {
+        state.firstRun?.fileSizeBytes?.let { size ->
             Text(
-                stringResource(R.string.unlock_loaded_from_share, formatFileSize(it.fileSizeBytes)),
+                stringResource(R.string.unlock_loaded_from_share, formatFileSize(size)),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -318,6 +339,35 @@ private fun ReasonNotice(reason: PasswordReason?) {
         )
         null -> Unit
     }
+}
+
+@Composable
+private fun ProblemNotice(problem: UnlockProblem, onSyncNow: () -> Unit, onChooseSource: () -> Unit) {
+    val tone = if (problem == UnlockProblem.Corrupt) NoticeTone.Error else NoticeTone.Warning
+    val content = if (problem == UnlockProblem.Corrupt) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.onTertiaryContainer
+    }
+    val colors = ButtonDefaults.textButtonColors(contentColor = content)
+    Notice(
+        tone = tone,
+        icon = if (problem == UnlockProblem.Corrupt) KpmIcons.Error else KpmIcons.Warning,
+        title = stringResource(
+            if (problem == UnlockProblem.Corrupt) R.string.unlock_corrupt_title else R.string.unlock_no_db_title,
+        ),
+        text = stringResource(
+            if (problem == UnlockProblem.Corrupt) R.string.unlock_corrupt_text else R.string.unlock_no_db_text,
+        ),
+        actions = {
+            TextButton(onClick = onSyncNow, colors = colors) { Text(stringResource(R.string.unlock_sync_action)) }
+            if (problem == UnlockProblem.Corrupt) {
+                TextButton(onClick = onChooseSource, colors = colors) {
+                    Text(stringResource(R.string.unlock_corrupt_action))
+                }
+            }
+        },
+    )
 }
 
 @Composable

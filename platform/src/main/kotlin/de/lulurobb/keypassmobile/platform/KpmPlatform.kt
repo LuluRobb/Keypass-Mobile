@@ -24,6 +24,7 @@ import de.lulurobb.keypassmobile.platform.keystore.KeystoreHashStore
 import de.lulurobb.keypassmobile.platform.keystore.SmbPasswordStore
 import de.lulurobb.keypassmobile.platform.service.UnlockedNotification
 import de.lulurobb.keypassmobile.platform.service.UnlockedService
+import de.lulurobb.keypassmobile.platform.session.FileSwitchJournal
 import de.lulurobb.keypassmobile.platform.session.FingerprintSetupResult
 import de.lulurobb.keypassmobile.platform.session.LockReason
 import de.lulurobb.keypassmobile.platform.session.PasswordRequiredReason
@@ -32,13 +33,16 @@ import de.lulurobb.keypassmobile.platform.session.Session
 import de.lulurobb.keypassmobile.platform.session.SessionEffects
 import de.lulurobb.keypassmobile.platform.session.SessionState
 import de.lulurobb.keypassmobile.platform.session.SyncInfo
+import de.lulurobb.keypassmobile.platform.session.SyncReport
 import de.lulurobb.keypassmobile.platform.session.SyncResult
+import de.lulurobb.keypassmobile.platform.session.SyncTrigger
 import de.lulurobb.keypassmobile.platform.session.UnlockOffer
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
 import de.lulurobb.keypassmobile.platform.settings.PrefsSettingsRepository
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import de.lulurobb.keypassmobile.platform.setup.SourceSetup
+import de.lulurobb.keypassmobile.platform.setup.forSetup
 import de.lulurobb.keypassmobile.platform.smb.ServerGuidListener
 import de.lulurobb.keypassmobile.platform.smb.SmbRemoteSource
 import de.lulurobb.keypassmobile.platform.smb.smbPath
@@ -48,7 +52,9 @@ import de.lulurobb.keypassmobile.smb.SmbServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.CharBuffer
@@ -125,12 +131,18 @@ class KpmPlatform private constructor(context: Context) {
     }
 
     private val effects = object : SessionEffects {
-        override fun onUnlocked() = UnlockedService.start(app)
+        override fun onUnlocked() {
+            // Without the service, lock on swipe-away (SE-01) and the notification button would be lost.
+            if (!UnlockedService.start(app)) core.lock(LockReason.ServiceRefused)
+        }
+
+        // The clipboard is cleared before the state says Locked (and once more after, which does nothing then).
+        override fun onLocking() = clipboardGuard.clearNow()
 
         override fun onLocked(reason: LockReason) = clipboardGuard.clearNow()
     }
 
-    private val core = Session(
+    private val core: Session = Session(
         engine = engine,
         hashStore = hashStore,
         settings = settingsRepository,
@@ -142,6 +154,8 @@ class KpmPlatform private constructor(context: Context) {
         elapsedMillis = elapsed,
         hasher = PasswordKey::hash,
         preload = Domains::preload,
+        journal = FileSwitchJournal(File(keyDir, "source-switch.properties")),
+        clearSmbPassword = smbPasswords::clear,
     )
 
     // ---- observable state ----
@@ -155,6 +169,23 @@ class KpmPlatform private constructor(context: Context) {
     /** Sync status, running flag and a pending server question (SY-08, DS-04). */
     val sync: StateFlow<SyncInfo> = core.sync
 
+    /**
+     * One event per finished sync run: the automatic check after an unlock
+     * ([SyncTrigger.AFTER_UNLOCK], e.g. "Neue Version geöffnet" via
+     * [SyncResult.Updated]), manual and scheduled runs and the test download
+     * of the setup. Not replayed; collect from a long-lived scope (e.g. the
+     * app's ViewModel) so no event is missed. The state itself stays in [sync]
+     * and [session].
+     */
+    val syncReports: SharedFlow<SyncReport> = core.syncReports
+
+    /**
+     * The newest sync report, null before the first run. [SyncReport.id] grows
+     * with every run: remember the last id shown and show each report once, also
+     * when the screen starts collecting only after the run ended.
+     */
+    val lastSyncReport: StateFlow<SyncReport?> = core.lastSyncReport
+
     /** Clipboard countdown (AF-09). */
     val clipboard: StateFlow<ClipboardStatus> = clipboardGuard.status
 
@@ -164,9 +195,9 @@ class KpmPlatform private constructor(context: Context) {
     // ---- unlock and lock ----
 
     /** What the unlock screen offers first. Deletes the stored value when the password is due (EN-05). */
-    fun unlockOffer(): UnlockOffer = core.unlockOffer()
+    suspend fun unlockOffer(): UnlockOffer = core.unlockOffer()
 
-    /** The fingerprint can unlock now ("Doch mit Fingerabdruck" in password mode). */
+    /** The fingerprint can unlock now ("Doch mit Fingerabdruck" in password mode). Free of side effects. */
     fun isFingerprintUsable(): Boolean = core.isFingerprintUsable()
 
     /**
@@ -190,12 +221,16 @@ class KpmPlatform private constructor(context: Context) {
         }
         if (!promptActive.compareAndSet(false, true)) return UnlockOutcome.Busy
         try {
+            core.expireFingerprint()
             core.fingerprintBlocker()?.let { return UnlockOutcome.PasswordRequired(it) }
             val ready = when (val prepared = withContext(io) { hashStore.prepareDecrypt() }) {
                 is DecryptPreparation.Ready -> prepared
                 DecryptPreparation.Missing -> return required(PasswordRequiredReason.NOT_SET_UP)
                 DecryptPreparation.Invalidated -> return required(PasswordRequiredReason.FINGERPRINT_INVALIDATED)
-                DecryptPreparation.Expired -> return required(PasswordRequiredReason.DUE)
+                DecryptPreparation.Expired -> {
+                    core.clearStoredHash(expired = true)
+                    return required(PasswordRequiredReason.DUE)
+                }
                 DecryptPreparation.Failed -> return required(PasswordRequiredReason.FINGERPRINT_FAILED)
             }
             val cipher = when (val result = withContext(Dispatchers.Main.immediate) { FingerprintPrompt.authenticate(activity, ready.cipher) }) {
@@ -208,11 +243,11 @@ class KpmPlatform private constructor(context: Context) {
             } catch (e: Exception) {
                 return when (KeystoreHashStore.classify(e)) {
                     DecryptPreparation.Invalidated -> {
-                        withContext(io) { hashStore.clear() }
+                        core.clearStoredHash()
                         required(PasswordRequiredReason.FINGERPRINT_INVALIDATED)
                     }
                     DecryptPreparation.Expired -> {
-                        withContext(io) { hashStore.clear() }
+                        core.clearStoredHash(expired = true)
                         required(PasswordRequiredReason.DUE)
                     }
                     else -> required(PasswordRequiredReason.FINGERPRINT_FAILED)
@@ -220,7 +255,7 @@ class KpmPlatform private constructor(context: Context) {
             }
             if (hash.size != PasswordKey.HASH_LENGTH) {
                 hash.fill(0)
-                withContext(io) { hashStore.clear() }
+                core.clearStoredHash()
                 return required(PasswordRequiredReason.NOT_SET_UP)
             }
             return core.unlockWithStoredHash(hash)
@@ -268,19 +303,21 @@ class KpmPlatform private constructor(context: Context) {
         }
     }
 
+    private fun isUnlocked(): Boolean = core.state.value is SessionState.Unlocked
+
     /** "Benutzername kopieren" (UI-02, AF-09). False when locked or unknown entry. */
     fun copyUsername(entryId: UUID): Boolean {
         val unlocked = core.unlockedOrNull() ?: return false
         val entry = unlocked.vault.entries.firstOrNull { it.id == entryId } ?: return false
         core.touch()
-        return clipboardGuard.copy(CopiedValue.USERNAME, entry.username, settings.value.clipboardTimeout)
+        return clipboardGuard.copy(CopiedValue.USERNAME, entry.username, settings.value.clipboardTimeout, ::isUnlocked)
     }
 
     /** "Passwort kopieren" (UI-02, AF-09). The password is marked sensitive and cleared after the set time. */
     fun copyPassword(entryId: UUID): Boolean {
         val chars = revealPassword(entryId) ?: return false
         return try {
-            clipboardGuard.copy(CopiedValue.PASSWORD, CharBuffer.wrap(chars), settings.value.clipboardTimeout)
+            clipboardGuard.copy(CopiedValue.PASSWORD, CharBuffer.wrap(chars), settings.value.clipboardTimeout, ::isUnlocked)
         } finally {
             chars.fill('\u0000')
         }
@@ -295,7 +332,7 @@ class KpmPlatform private constructor(context: Context) {
     suspend fun trustNewServer(): SyncResult = core.trustPendingServer()
 
     /** Periodic background sync (SY-06), called by the worker. */
-    internal suspend fun runScheduledSync(): SyncResult = core.syncNow()
+    internal suspend fun runScheduledSync(): SyncResult = core.syncNow(SyncTrigger.SCHEDULED)
 
     // ---- settings ----
 
@@ -335,9 +372,11 @@ class KpmPlatform private constructor(context: Context) {
     // ---- setup ----
 
     /** Starts the setup or a source change (DS-02). Close the returned object when leaving the flow. */
-    fun startSourceSetup(): SourceSetup = SourceSetup(connector, settingsRepository, smbPasswords, core, clock, io)
+    fun startSourceSetup(): SourceSetup = SourceSetup(connector.forSetup(), settingsRepository, smbPasswords, core, clock, io)
 
     private fun start() {
+        // Finishes undoing a source change that a process death interrupted; unlocks wait for it.
+        scope.launch { core.recoverInterruptedSwitch() }
         UnlockedNotification.ensureChannel(app)
         if (settings.value.setupCompleted) SyncScheduler.schedule(app)
     }

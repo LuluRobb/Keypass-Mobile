@@ -29,6 +29,18 @@ data class FolderItem(
 )
 
 /**
+ * A folder as shown by the browse screen: the [items] of [SmbConnection.listFolder] and how many
+ * files were left out because they are no `.kdbx` files (DS-02). Folders are never left out here.
+ *
+ * @property items Folders and `.kdbx` files, sorted.
+ * @property otherFileCount Number of files that are not `.kdbx` files and are therefore not in [items].
+ */
+data class FolderListing(
+    val items: List<FolderItem>,
+    val otherFileCount: Int,
+)
+
+/**
  * Metadata of a remote file, used to decide whether the file on the share is newer
  * than the offline copy (SY-04).
  *

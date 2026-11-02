@@ -51,22 +51,32 @@ internal class RawEntry(
 
 /**
  * Keeps folders and `.kdbx` files (case-insensitive), drops "." and "..", sorts with
- * [folderItemOrder].
+ * [folderItemOrder]. Counts the other files that were left out.
  */
-internal fun toFolderItems(entries: List<RawEntry>): List<FolderItem> = entries
-    .asSequence()
-    .filter { it.name.isNotEmpty() && it.name != "." && it.name != ".." }
-    .mapNotNull { e ->
-        val isFolder = (e.attributes and FILE_ATTRIBUTE_DIRECTORY) != 0L
-        when {
-            isFolder -> FolderItem(e.name, isFolder = true, size = 0, modified = e.modified)
-            e.name.endsWith(KDBX_EXTENSION, ignoreCase = true) ->
-                FolderItem(e.name, isFolder = false, size = e.size, modified = e.modified)
-            else -> null
+internal fun toFolderListing(entries: List<RawEntry>): FolderListing {
+    var others = 0
+    val items = entries
+        .asSequence()
+        .filter { it.name.isNotEmpty() && it.name != "." && it.name != ".." }
+        .mapNotNull { e ->
+            val isFolder = (e.attributes and FILE_ATTRIBUTE_DIRECTORY) != 0L
+            when {
+                isFolder -> FolderItem(e.name, isFolder = true, size = 0, modified = e.modified)
+                e.name.endsWith(KDBX_EXTENSION, ignoreCase = true) ->
+                    FolderItem(e.name, isFolder = false, size = e.size, modified = e.modified)
+                else -> {
+                    others++
+                    null
+                }
+            }
         }
-    }
-    .sortedWith(folderItemOrder())
-    .toList()
+        .sortedWith(folderItemOrder())
+        .toList()
+    return FolderListing(items, others)
+}
+
+/** The kept entries of [toFolderListing]. */
+internal fun toFolderItems(entries: List<RawEntry>): List<FolderItem> = toFolderListing(entries).items
 
 /**
  * Keeps plain disk shares: no IPC, printer or device shares, no special shares and

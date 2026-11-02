@@ -32,14 +32,25 @@ sealed interface UiMessage {
     data class Copied(val value: CopiedValue, val secondsLeft: Int) : UiMessage
     data object ClipboardCleared : UiMessage
     data object Locked : UiMessage
+    /** Locked because the foreground service was refused (SE-03); unlock again with the app in front. */
+    data object LockedNoService : UiMessage
+    /** Locked because the source was changed to a file the open key does not open; unlock with its password. */
+    data object LockedSourceChanged : UiMessage
     /** "Gesperrt nach 2 Minuten ohne Nutzung." (SE-02), shown on the unlock screen. */
     data class AutoLocked(val idleSeconds: Int) : UiMessage
     data class SetupDone(val fingerprint: Boolean) : UiMessage
     /** After entering the due master password (EN-05). */
     data class FingerprintRenewed(val days: Int) : UiMessage
     data object FingerprintFailed : UiMessage
+    /** The fingerprint could not be stored after the password entry (e.g. none enrolled). */
+    data object FingerprintStoreFailed : UiMessage
+    /** The fingerprint switch is on but becomes active only at the next password entry. */
+    data object FingerprintOnNextPassword : UiMessage
     data object SyncNoNewer : UiMessage
     data object SyncUpdated : UiMessage
+    /** Sync while locked: the newer file waits for the next unlock, or a source setup loaded the file. */
+    data object DatabaseLoaded : UiMessage
+    data object SyncFailed : UiMessage
     data object SyncUnreachable : UiMessage
     data object SyncOtherServer : UiMessage
     /** Sync now while locked runs as background job (SY-07). */
@@ -60,14 +71,20 @@ fun UiMessage.text(): String = when (this) {
     )
     UiMessage.ClipboardCleared -> stringResource(R.string.msg_clipboard_cleared)
     UiMessage.Locked -> stringResource(R.string.msg_locked)
+    UiMessage.LockedNoService -> stringResource(R.string.msg_locked_no_service)
+    UiMessage.LockedSourceChanged -> stringResource(R.string.msg_locked_source_changed)
     is UiMessage.AutoLocked -> stringResource(R.string.msg_auto_locked, durationText(idleSeconds))
     is UiMessage.SetupDone -> stringResource(
         if (fingerprint) R.string.msg_setup_done_fingerprint else R.string.msg_setup_done,
     )
     is UiMessage.FingerprintRenewed -> stringResource(R.string.msg_fingerprint_renewed, daysText(days))
     UiMessage.FingerprintFailed -> stringResource(R.string.msg_fingerprint_failed)
+    UiMessage.FingerprintStoreFailed -> stringResource(R.string.msg_fingerprint_store_failed)
+    UiMessage.FingerprintOnNextPassword -> stringResource(R.string.msg_fingerprint_on_next_password)
     UiMessage.SyncNoNewer -> stringResource(R.string.msg_sync_no_newer)
     UiMessage.SyncUpdated -> stringResource(R.string.msg_sync_updated)
+    UiMessage.DatabaseLoaded -> stringResource(R.string.msg_database_loaded)
+    UiMessage.SyncFailed -> stringResource(R.string.msg_sync_failed)
     UiMessage.SyncUnreachable -> stringResource(R.string.msg_sync_unreachable)
     UiMessage.SyncOtherServer -> stringResource(R.string.msg_sync_other_server)
     UiMessage.SyncStarted -> stringResource(R.string.msg_sync_started)
@@ -79,6 +96,16 @@ fun UiMessage.text(): String = when (this) {
 
 private const val MESSAGE_MILLIS = 4000L
 private const val LONG_MESSAGE_MILLIS = 6000L
+
+/** Long texts that need more reading time. */
+private fun UiMessage.isLong(): Boolean = when (this) {
+    is UiMessage.ShareDenied,
+    UiMessage.LockedNoService,
+    UiMessage.LockedSourceChanged,
+    UiMessage.FingerprintStoreFailed,
+    -> true
+    else -> false
+}
 
 /**
  * Snackbar host for [UiMessage]. Put it into the Scaffold's snackbarHost slot.
@@ -93,7 +120,7 @@ fun MessageHost(message: UiMessage?, onDismissed: () -> Unit, modifier: Modifier
     val shown = last[0]
     LaunchedEffect(message) {
         if (message == null || message is UiMessage.Copied) return@LaunchedEffect
-        delay(if (message is UiMessage.ShareDenied) LONG_MESSAGE_MILLIS else MESSAGE_MILLIS)
+        delay(if (message.isLong()) LONG_MESSAGE_MILLIS else MESSAGE_MILLIS)
         dismiss()
     }
     AnimatedVisibility(

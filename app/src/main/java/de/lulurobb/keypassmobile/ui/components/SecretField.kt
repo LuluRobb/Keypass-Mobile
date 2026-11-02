@@ -97,12 +97,17 @@ class SecretInput {
     fun clear() {
         pending?.fill('\u0000')
         pending = null
-        val text = editText?.text ?: return
-        val n = text.length
-        if (n > 0) {
-            text.replace(0, n, String(CharArray(n)))
-            text.clear()
-        }
+        editText?.wipe()
+    }
+}
+
+/** Overwrites the characters of the edit buffer in place, then empties it. */
+private fun EditText.wipe() {
+    val buffer = text ?: return
+    val n = buffer.length
+    if (n > 0) {
+        buffer.replace(0, n, String(CharArray(n)))
+        buffer.clear()
     }
 }
 
@@ -234,7 +239,10 @@ fun SecretField(
                         setSize(cursorWidth, edit.lineHeight)
                     }
                 },
+                // The view is released before the owner's DisposableEffect runs clear(): wipe it here, a
+                // detached EditText would keep the typed password in its buffer until it is collected.
                 onRelease = { edit ->
+                    edit.wipe()
                     if (input.editText === edit) input.editText = null
                 },
             )

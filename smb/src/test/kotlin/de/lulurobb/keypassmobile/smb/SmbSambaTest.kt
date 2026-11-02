@@ -230,6 +230,7 @@ class SmbSambaTest {
             assertTrue(root.filter { it.isFolder }.all { it.size == 0L })
 
             assertEquals(root, c.listFolder("kpm", "/"))
+            assertEquals(root, c.listFolderWithCount("kpm", "").items)
             assertEquals(listOf("Praxis Müller"), c.listFolder("kpm", "Ärzte").map { it.name })
             assertEquals(
                 listOf(FolderItem("2026.kdbx", false, nestedFile.length(), c.listFolder("kpm", "Ärzte\\Praxis Müller").single().modified)),

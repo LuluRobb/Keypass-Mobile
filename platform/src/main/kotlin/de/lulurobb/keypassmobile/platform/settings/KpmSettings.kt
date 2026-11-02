@@ -76,6 +76,12 @@ data class KpmSettings(
     val lastPasswordEntry: Instant? = null,
     /** [passwordInterval] at [lastPasswordEntry]; the keystore key expires after it (EN-05). */
     val intervalAtEntry: PasswordInterval? = null,
+    /**
+     * The stored fingerprint value was deleted because the master password was
+     * due (EN-05). The unlock screen keeps saying why until the next typed
+     * password.
+     */
+    val fingerprintExpired: Boolean = false,
 )
 
 /** Persisted settings as a flow. Updates are atomic and visible at once. */

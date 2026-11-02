@@ -9,11 +9,21 @@
             android:name=".ui.gallery.GalleryActivity"
             android:exported="true"
             android:label="@string/gallery_label"
+            android:taskAffinity="de.lulurobb.keypassmobile.gallery"
             android:theme="@style/Theme.KeyPassMobile"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- getLaunchIntentForPackage prefers CATEGORY_INFO, so debug builds resolve to MainActivity
+             and not to the gallery. The merger adds this filter to MainActivity of the main manifest. -->
+        <activity android:name=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.INFO" />
             </intent-filter>
         </activity>
     </application>

@@ -68,7 +68,10 @@ class PlatformDeviceTest {
             notification.actions.single().actionIntent.send()
             assertTrue(waitUntil { platform.session.value is SessionState.Locked })
             assertEquals(LockReason.Notification, (platform.session.value as SessionState.Locked).reason)
-            assertEquals(ClipboardStatus.Cleared(CopiedValue.USERNAME), platform.clipboard.value)
+            assertTrue(
+                "clipboard cleared: ${platform.clipboard.value}",
+                waitUntil { platform.clipboard.value == ClipboardStatus.Cleared(CopiedValue.USERNAME) },
+            )
             assertTrue("notification removed", waitUntil { ourNotification() == null })
             assertEquals(null, platform.revealPassword(entry.id))
         } finally {

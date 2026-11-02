@@ -56,14 +56,23 @@ sealed interface ConnectError {
     data object Unsupported : ConnectError
 
     data object Unknown : ConnectError
+
+    /**
+     * Only from [SourceSetup.connectWithStoredPassword]: host, user or domain
+     * differ from the current source, or no password is stored. Show the
+     * password field and use connect().
+     */
+    data object PasswordRequired : ConnectError
 }
 
 /** Result of [SourceSetup.listFolder]. */
 sealed interface FolderResult {
     /**
-     * Folders and .kdbx files, sorted. [hiddenCount] system folders
-     * (#recycle, @eaDir, $RECYCLE.BIN, names starting with ".", "$" or "@")
-     * were left out.
+     * Folders and .kdbx files, sorted. System folders (#recycle, @eaDir,
+     * $RECYCLE.BIN, names starting with ".", "$" or "@") are left out without
+     * being counted. [hiddenCount] is the number of other files in the folder
+     * that are not shown because they are no .kdbx files: "%d andere Dateien
+     * sind ausgeblendet".
      */
     data class Listed(val folders: List<String>, val files: List<KdbxFileEntry>, val hiddenCount: Int) : FolderResult
 
@@ -95,8 +104,11 @@ sealed interface ChooseResult {
      * "Vom Share geladen, ..."; [fileChanged] false when the same file was
      * chosen again. [sync]: locked [SyncResult.CandidateReady] (the next
      * typed-password unlock opens it), unlocked [SyncResult.Updated] (shown
-     * now) or [SyncResult.NewVersionRejected] (other master password: lock
-     * and unlock with it), or [SyncResult.UpToDate].
+     * now) or [SyncResult.NewVersionRejected] (other master password), or
+     * [SyncResult.UpToDate]. When the file or server changed and the new file
+     * waits as candidate (CandidateReady, NewVersionRejected), the old offline
+     * copy is not opened any more, and an unlocked session was locked with
+     * LockReason.SourceChanged: unlock with the master password of the new file.
      */
     data class Saved(val fileSizeBytes: Long, val fileChanged: Boolean, val sync: SyncResult) : ChooseResult
 

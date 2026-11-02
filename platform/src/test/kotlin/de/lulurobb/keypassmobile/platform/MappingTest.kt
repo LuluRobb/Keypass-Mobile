@@ -11,11 +11,13 @@ import de.lulurobb.keypassmobile.platform.settings.SourceConfig
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import de.lulurobb.keypassmobile.platform.setup.BrowseError
 import de.lulurobb.keypassmobile.platform.setup.ConnectError
+import de.lulurobb.keypassmobile.platform.setup.ServerAddress
 import de.lulurobb.keypassmobile.platform.setup.SourceSetup
 import de.lulurobb.keypassmobile.platform.smb.ServerNames
 import de.lulurobb.keypassmobile.platform.smb.remoteErrorOf
 import de.lulurobb.keypassmobile.platform.smb.smbPath
 import de.lulurobb.keypassmobile.smb.FolderItem
+import de.lulurobb.keypassmobile.smb.FolderListing
 import de.lulurobb.keypassmobile.smb.SmbException
 import de.lulurobb.keypassmobile.smb.SmbServer
 import org.junit.jupiter.api.Test
@@ -66,19 +68,23 @@ class MappingTest {
     }
 
     @Test
-    fun `system folders are hidden and counted`() {
+    fun `system folders are hidden without being counted, other files are counted`() {
         val now = Instant.parse("2026-11-01T10:00:00Z")
         fun folder(name: String) = FolderItem(name, isFolder = true, size = 0, modified = now)
         val listing = SourceSetup.filterListing(
-            listOf(
-                folder("#recycle"), folder("@eaDir"), folder("\$RECYCLE.BIN"), folder(".snapshots"),
-                folder("@Recently-Snapshot"), folder("System Volume Information"), folder("#snapshot"),
-                folder("KeePass"), folder("Ärzte"), folder("#Projekte"),
-                FolderItem("Passwords.kdbx", isFolder = false, size = 265_530, modified = now),
+            FolderListing(
+                listOf(
+                    folder("#recycle"), folder("@eaDir"), folder("\$RECYCLE.BIN"), folder(".snapshots"),
+                    folder("@Recently-Snapshot"), folder("System Volume Information"), folder("#snapshot"),
+                    folder("KeePass"), folder("Ärzte"), folder("#Projekte"),
+                    FolderItem("Passwords.kdbx", isFolder = false, size = 265_530, modified = now),
+                ),
+                otherFileCount = 3,
             ),
         )
         assertEquals(listOf("KeePass", "Ärzte", "#Projekte"), listing.folders)
-        assertEquals(7, listing.hiddenCount)
+        // The 7 system folders are not counted; the 3 other files are.
+        assertEquals(3, listing.hiddenCount)
         assertEquals(1, listing.files.size)
         assertEquals(265_530, listing.files[0].sizeBytes)
     }
@@ -134,6 +140,18 @@ class MappingTest {
         assertEquals(listOf("KeePass"), a.folderPath)
         assertEquals("Passwords.kdbx", a.fileName)
         assertEquals("\\\\NAS\\Daten\\KeePass\\Passwords.kdbx", a.unc)
+    }
+
+    @Test
+    fun `stored SMB password applies to host, port, user and domain of the current source`() {
+        val source = SourceConfig("NAS", 445, "", "kpm", "Daten", listOf("db.kdbx"))
+        val same = ServerAddress(host = " nas ", user = "KPM")
+        assertTrue(SourceSetup.storedPasswordApplies(source, same))
+        assertFalse(SourceSetup.storedPasswordApplies(source, same.copy(port = 4450)))
+        assertFalse(SourceSetup.storedPasswordApplies(source, same.copy(host = "other-nas")))
+        assertFalse(SourceSetup.storedPasswordApplies(source, same.copy(user = "admin")))
+        assertFalse(SourceSetup.storedPasswordApplies(source, same.copy(domain = "WORKGROUP")))
+        assertFalse(SourceSetup.storedPasswordApplies(null, same))
     }
 
     @Test

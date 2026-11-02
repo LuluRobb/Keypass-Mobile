@@ -565,6 +565,127 @@ class SyncEngineTest {
         assertEquals(UnlockResult.NoDatabase, SyncEngine(dir, opener, clock).unlock(key("pw1"), KeySource.TYPED_PASSWORD))
     }
 
+    // ---- source change ----
+
+    private fun previous() = File(dir, "offline-previous.kdbx")
+
+    /** Offline copy of the first file (pw1, v1); the source points to another file that waits as candidate and the old copy is set aside. */
+    private fun changeSource(newContent: String) {
+        establish()
+        remote.publish(newContent, t0.minus(Duration.ofDays(2)))
+        assertEquals(BackgroundSyncResult.CandidateDownloaded, engine.backgroundSync(remote))
+        assertTrue(engine.markSourceChanged())
+    }
+
+    @Test
+    fun previousSourceCopyStaysOnDiskButIsNotOpenedUntilTheNewFileOpened() {
+        changeSource(kdbx("pw2", "other"))
+
+        assertEquals(kdbx("pw1", "v1"), previous().readText(), "old copy stays until the new file opened")
+        assertFalse(offline().exists())
+        // The old key does not show the old file as the new source's database.
+        assertEquals(UnlockResult.WrongKey(KeySource.FINGERPRINT), unlock("pw1", KeySource.FINGERPRINT))
+        assertTrue(previous().exists())
+        assertEquals(CandidateState.PENDING, engine.status().candidate)
+
+        // The new file opens: it becomes the offline copy and the old copy is deleted.
+        val result = opened(unlock("pw2"))
+        assertEquals("other", result.vault.rootGroupName)
+        assertTrue(result.newVersionOpened)
+        assertEquals(kdbx("pw2", "other"), offline().readText())
+        assertFalse(previous().exists())
+        assertFalse(candidate().exists())
+        assertEquals(RefreshResult.UpToDate, refresh("pw2"))
+        assertEquals("other", opened(SyncEngine(dir, opener, clock).unlock(key("pw2"), KeySource.TYPED_PASSWORD)).vault.rootGroupName)
+    }
+
+    @Test
+    fun withoutACandidateTheOfflineCopyIsNeverSetAside() {
+        establish()
+        // Nothing waits as candidate (e.g. the new file already replaced the offline copy): renaming would lose the database.
+        assertFalse(engine.markSourceChanged())
+        assertTrue(offline().exists())
+        assertFalse(previous().exists())
+        assertEquals("v1", opened(unlock("pw1")).vault.rootGroupName)
+    }
+
+    @Test
+    fun previousSourceCopyIsNotCountedAsLocalDatabaseAndSurvivesARestart() {
+        changeSource(kdbx("pw2", "other"))
+        // Only the candidate counts. Nothing depends on the state file: without it the old copy is still not opened.
+        File(dir, "sync-state.properties").delete()
+        val restarted = SyncEngine(dir, opener, clock)
+        assertEquals(UnlockResult.WrongKey(KeySource.TYPED_PASSWORD), restarted.unlock(key("pw1"), KeySource.TYPED_PASSWORD))
+        assertTrue(previous().exists())
+        candidate().delete()
+        assertFalse(SyncEngine(dir, opener, clock).status().hasLocalDatabase)
+        assertEquals(UnlockResult.NoDatabase, SyncEngine(dir, opener, clock).unlock(key("pw1"), KeySource.TYPED_PASSWORD))
+    }
+
+    @Test
+    fun previousSourceCopyIsNeverTakenForTheNewFile() {
+        changeSource(kdbx("pw2", "other"))
+        // The share serves the old file's size and time again: not "up to date", the old copy is gone from the offline slot.
+        remote.publish(kdbx("pw1", "v1"), t0.minus(Duration.ofDays(1)))
+        assertFalse(engine.backgroundSync(remote) is BackgroundSyncResult.UpToDate)
+    }
+
+    @Test
+    fun refreshWithTheKeyOfTheNewFileReplacesAndRemovesThePreviousSourceCopy() {
+        establish()
+        remote.publish(kdbx("pw1", "other"), t0.minus(Duration.ofDays(2)))
+        assertEquals("other", assertIs<RefreshResult.Updated>(refresh("pw1")).vault.rootGroupName)
+        // Replaced in place: no candidate, nothing to set aside, nothing lost.
+        assertFalse(engine.markSourceChanged())
+        assertEquals(kdbx("pw1", "other"), offline().readText())
+        assertFalse(previous().exists())
+        assertEquals("other", opened(unlock("pw1")).vault.rootGroupName)
+    }
+
+    @Test
+    fun changingTheSourceTwiceKeepsTheFirstPreviousCopy() {
+        changeSource(kdbx("pw2", "other"))
+        assertFalse(engine.markSourceChanged())
+        assertEquals(kdbx("pw1", "v1"), previous().readText())
+        assertEquals("other", opened(unlock("pw2")).vault.rootGroupName)
+        assertFalse(previous().exists())
+    }
+
+    @Test
+    fun undoSourceChangedBringsTheOldCopyBack() {
+        changeSource(kdbx("pw2", "other"))
+        engine.undoSourceChanged()
+        engine.discardCandidate()
+        assertEquals(kdbx("pw1", "v1"), offline().readText())
+        assertFalse(previous().exists())
+        assertFalse(candidate().exists())
+        assertEquals("v1", opened(unlock("pw1")).vault.rootGroupName)
+        // Undo without anything set aside does nothing.
+        engine.undoSourceChanged()
+        assertEquals("v1", opened(unlock("pw1")).vault.rootGroupName)
+    }
+
+    @Test
+    fun resetAlsoDeletesThePreviousSourceCopy() {
+        changeSource(kdbx("pw2", "other"))
+        engine.reset()
+        assertFalse(previous().exists())
+    }
+
+    @Test
+    fun beforeStoreFailureKeepsTheOfflineCopyAndReportsInvalidFile() {
+        establish()
+        newVersion(kdbx("pw1", "v2"))
+        val result = engine.refreshAfterUnlock(remote, key("pw1")) { throw IllegalStateException("index") }
+        assertEquals(RefreshResult.Failed(SyncProblem.INVALID_FILE), result)
+        assertEquals(kdbx("pw1", "v1"), offline().readText())
+        assertFalse(temp().exists())
+        assertEquals(SyncProblem.INVALID_FILE, engine.status().lastProblem)
+        assertTrue(opener.secrets.last().closed, "the vault that could not be prepared is closed")
+        // The next refresh retries.
+        assertEquals("v2", assertIs<RefreshResult.Updated>(refresh("pw1")).vault.rootGroupName)
+    }
+
     // ---- concurrency ----
 
     @Test

@@ -64,6 +64,32 @@ class ClipboardDeviceTest {
         assertTrue("clip still present: ${after?.getItemAt(0)?.text}", after == null || after.itemCount == 0 || after.getItemAt(0).text.isNullOrEmpty())
     }
 
+    @Test
+    fun staleCountdownNeverTouchesANewerCopyOrACleared() {
+        val guard = ClipboardGuard(context, scope, SystemClock::elapsedRealtime)
+        // A second copy of the same value replaces the first: the status stays Holding with a fresh countdown.
+        assertTrue(guard.copy(CopiedValue.USERNAME, "erst", ClipboardTimeout.SECONDS_15))
+        assertTrue(guard.copy(CopiedValue.USERNAME, "zweit", ClipboardTimeout.SECONDS_15))
+        Thread.sleep(1_500)
+        val holding = guard.status.value
+        assertTrue("$holding", holding is ClipboardStatus.Holding && holding.secondsLeft in 12..14)
+
+        // After a clear, no tick of the old countdown writes Holding again.
+        guard.clearNow()
+        Thread.sleep(2_500)
+        assertEquals(ClipboardStatus.Cleared(CopiedValue.USERNAME), guard.status.value)
+    }
+
+    @Test
+    fun copyIsRefusedInsideTheLockWhenNotAllowed() {
+        val guard = ClipboardGuard(context, scope, SystemClock::elapsedRealtime)
+        // The session locked between the caller's check and the copy: nothing may be written.
+        assertEquals(false, guard.copy(CopiedValue.PASSWORD, "geheim", ClipboardTimeout.SECONDS_15) { false })
+        assertEquals(ClipboardStatus.Idle, guard.status.value)
+        val clip = readClip()
+        assertTrue(clip == null || clip.itemCount == 0 || clip.getItemAt(0).text?.toString() != "geheim")
+    }
+
     // Keeping foreign content is covered by the JVM test of ClipboardGuard.shouldClear:
     // on the emulator the host clipboard sync restores older clips, which makes it flaky here.
 }

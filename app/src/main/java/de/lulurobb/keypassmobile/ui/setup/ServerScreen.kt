@@ -80,6 +80,8 @@ data class ServerFormState(
     val error: ConnectError? = null,
     /** Null: changing the source from the settings, with back arrow and without intro. */
     val step: SetupStep? = SetupStep(1),
+    /** The stored SMB password fits this address: an empty password field means "use it". */
+    val storedPasswordUsable: Boolean = false,
 )
 
 /**
@@ -161,6 +163,7 @@ fun ServerScreen(
                     input = password,
                     label = stringResource(R.string.setup_field_password),
                     enabled = enabled,
+                    supportingText = if (state.storedPasswordUsable) stringResource(R.string.setup_field_password_keep) else null,
                     imeAction = if (state.advancedOpen) ImeAction.Next else ImeAction.Done,
                     modifier = Modifier.padding(top = 8.dp),
                 )

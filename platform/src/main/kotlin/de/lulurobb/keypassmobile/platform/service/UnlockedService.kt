@@ -30,7 +30,8 @@ import kotlinx.coroutines.launch
  *
  * Started by the platform on unlock; it stops itself when the session is
  * locked. It always calls startForeground first, so a lock right after the
- * start never breaks the startForegroundService contract.
+ * start never breaks the startForegroundService contract. If Android refuses
+ * startForeground, the session is locked with [LockReason.ServiceRefused].
  */
 class UnlockedService : Service() {
 
@@ -67,7 +68,9 @@ class UnlockedService : Service() {
                 startForeground(UnlockedNotification.NOTIFICATION_ID, notification)
             }
         } catch (_: Exception) {
-            // Not allowed now (e.g. started from the background): the platform's timers still run.
+            // Not allowed now (e.g. started from the background). Without the service, locking on
+            // swipe-away (SE-01) and the notification button (SE-03) would silently not work: lock now.
+            platform.lock(LockReason.ServiceRefused)
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -139,13 +142,16 @@ class UnlockedService : Service() {
     internal companion object {
         const val ACTION_LOCK = "de.lulurobb.keypassmobile.platform.action.LOCK"
 
-        /** Starts the service; failures (background start not allowed) are ignored. */
-        fun start(context: Context) {
-            try {
-                context.startForegroundService(Intent(context, UnlockedService::class.java))
-            } catch (_: Exception) {
-                // ForegroundServiceStartNotAllowedException or similar: timers run in-process anyway.
-            }
+        /**
+         * Starts the service. False when Android refused it (background start not
+         * allowed): the caller must lock, see [LockReason.ServiceRefused].
+         */
+        fun start(context: Context): Boolean = try {
+            context.startForegroundService(Intent(context, UnlockedService::class.java))
+            true
+        } catch (_: Exception) {
+            // ForegroundServiceStartNotAllowedException or similar.
+            false
         }
     }
 }

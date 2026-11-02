@@ -34,8 +34,11 @@ android {
 }
 
 dependencies {
-    // Wave 1: UI works against :model only; :core, :kdbx and :smb are wired in later.
+    // The UI works against :model; state holders talk to :platform (which brings :core and
+    // kotlinx-coroutines as api) and the picker uses the contract of :autofill (which brings :model).
     implementation(project(":model"))
+    implementation(project(":platform"))
+    implementation(project(":autofill"))
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -48,6 +51,7 @@ dependencies {
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlinx.coroutines.test)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 

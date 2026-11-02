@@ -63,7 +63,7 @@ sealed interface ListBanner {
     data class OtherServer(val host: String) : ListBanner
 
     /** The newer file from the share did not open (EN-06); the offline copy of [copyFrom] is open. */
-    data class NewVersionRejected(val copyFrom: LocalDateTime) : ListBanner
+    data class NewVersionRejected(val copyFrom: LocalDateTime?) : ListBanner
 }
 
 /** What the list shows (UI-01). Counts refer to the current group filter. */
@@ -258,7 +258,9 @@ private fun Banner(banner: ListBanner, onDetails: () -> Unit, onDismiss: () -> U
             tone = NoticeTone.Warning,
             icon = KpmIcons.Info,
             title = stringResource(R.string.banner_candidate_title),
-            text = stringResource(R.string.banner_candidate_text, formatStamp(banner.copyFrom)),
+            text = banner.copyFrom
+                ?.let { stringResource(R.string.banner_candidate_text, formatStamp(it)) }
+                ?: stringResource(R.string.banner_candidate_text_undated),
             modifier = modifier,
             actions = {
                 TextButton(

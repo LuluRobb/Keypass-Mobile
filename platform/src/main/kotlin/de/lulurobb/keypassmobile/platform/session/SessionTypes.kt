@@ -61,6 +61,21 @@ sealed interface LockReason {
 
     /** The app was swiped away from the recents (SE-01). */
     data object TaskRemoved : LockReason
+
+    /**
+     * Android refused the foreground service (SE-03), e.g. started from the
+     * background: lock on swipe-away and the notification button would not
+     * work, so the session was locked right away. UI: ask to unlock again with
+     * the app in the foreground.
+     */
+    data object ServiceRefused : LockReason
+
+    /**
+     * The SMB source was changed (settings) to a file that the key of the open
+     * vault does not open. The old vault was locked so that no old data is
+     * shown or autofilled; unlock with the master password of the new file.
+     */
+    data object SourceChanged : LockReason
 }
 
 /** Why the master password is needed instead of the fingerprint. */
@@ -99,13 +114,18 @@ sealed interface UnlockOutcome {
      * The database is open (state [SessionState.Unlocked]). [candidateRejected]
      * set: a newer file did not open, the offline copy is open (EN-06).
      * [fingerprintRenewedForDays] is set after a typed password with the
-     * fingerprint on: the hash is being stored for this many days (EN-05);
+     * fingerprint on once the hash was stored for this many days (EN-05);
      * show "Fingerabdruck ist wieder für ... aktiv" or "Eingerichtet ...".
+     * [fingerprintStoreFailed] is true when it should have been stored but
+     * storing failed (e.g. no fingerprint enrolled): then
+     * [fingerprintRenewedForDays] is null, the fingerprint stays unavailable
+     * until the next typed password, and the UI must not claim it is active.
      */
     data class Unlocked(
         val newVersionOpened: Boolean,
         val candidateRejected: CandidateRejection?,
         val fingerprintRenewedForDays: Int?,
+        val fingerprintStoreFailed: Boolean = false,
     ) : UnlockOutcome
 
     /** The typed password opens no local file (EN-01). */
@@ -123,7 +143,11 @@ sealed interface UnlockOutcome {
     /** Another unlock is running; nothing was done. */
     data object Busy : UnlockOutcome
 
-    /** Locked again (e.g. swiped away) while decrypting; the result was discarded. */
+    /**
+     * Locked again (e.g. swiped away, or the foreground service was refused)
+     * while decrypting or right after opening; nothing is shown. The reason is in
+     * [SessionState.Locked].
+     */
     data object Aborted : UnlockOutcome
 }
 
@@ -135,18 +159,49 @@ sealed interface SyncResult {
     /** Unlocked: a newer version was opened and is shown now. UI: SyncUpdated. */
     data object Updated : SyncResult
 
-    /** Locked: a newer version waits as candidate for the next unlock. */
+    /**
+     * Locked: a newer version waits as candidate for the next unlock. Also when
+     * the session was locked while a newer version was just opened: it waits
+     * for the next unlock.
+     */
     data object CandidateReady : SyncResult
 
     /** A newer version does not open with the key in memory (EN-06). */
     data object NewVersionRejected : SyncResult
 
-    /** Check or download failed; local files unchanged. SERVER_CHANGED: see [SyncInfo.serverChange]. */
+    /**
+     * Check or download failed; local files unchanged. SERVER_CHANGED: see
+     * [SyncInfo.serverChange]. INVALID_FILE is also reported when a newer version
+     * opened but could not be prepared for display; the offline copy and the open
+     * vault stay as they were and the next sync tries again.
+     */
     data class Failed(val problem: SyncProblem) : SyncResult
 
     /** No source configured yet. */
     data object NotConfigured : SyncResult
 }
+
+/** What started a sync run, see [SyncReport]. */
+enum class SyncTrigger {
+    /** The automatic check right after an unlock (SY-04). */
+    AFTER_UNLOCK,
+
+    /** "Jetzt synchronisieren" (SY-07) or accepting a new server identity (DS-04). */
+    REQUESTED,
+
+    /** The periodic background sync (SY-06). */
+    SCHEDULED,
+
+    /** The test download of a source setup or source change (DS-02). */
+    SETUP,
+}
+
+/**
+ * The result of one finished sync run and what started it. [id] grows with
+ * every run in this process (starting at 1), so a report is shown once even
+ * when two runs have the same result.
+ */
+data class SyncReport(val id: Long, val trigger: SyncTrigger, val result: SyncResult)
 
 /**
  * The server answered with a different GUID than remembered (DS-04). Nothing

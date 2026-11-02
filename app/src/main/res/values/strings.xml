@@ -29,6 +29,7 @@
     <string name="setup_field_user">Benutzer</string>
     <string name="setup_field_user_helper">Am besten ein eigener Benutzer, der nur den Ordner mit der Datenbank lesen darf.</string>
     <string name="setup_field_password">Passwort</string>
+    <string name="setup_field_password_keep">Leer lassen, um das gespeicherte Passwort zu verwenden.</string>
     <string name="setup_advanced">Erweitert: Port und Domäne</string>
     <string name="setup_field_port">Port</string>
     <string name="setup_field_domain">Domäne (optional)</string>
@@ -99,6 +100,12 @@
     <string name="unlock_stored_rejected_title">Master-Passwort geändert?</string>
     <string name="unlock_stored_rejected_text">Mit dem gespeicherten Wert ließ sich die Datei nicht öffnen. Gib das aktuelle Master-Passwort ein, die App merkt es sich neu.</string>
     <string name="unlock_busy">Datenbank wird geöffnet …</string>
+    <string name="unlock_no_db_title">Keine Datenbank auf dem Gerät</string>
+    <string name="unlock_no_db_text">Es liegt noch keine Kopie der Datenbank auf diesem Gerät. Hol sie vom Share, danach lässt sich die App entsperren.</string>
+    <string name="unlock_sync_action">Jetzt synchronisieren</string>
+    <string name="unlock_corrupt_title">Offline-Kopie beschädigt</string>
+    <string name="unlock_corrupt_text">Die gespeicherte Kopie lässt sich nicht lesen. Hol die Datei neu vom Share oder wähl die Quelle noch einmal.</string>
+    <string name="unlock_corrupt_action">Quelle neu wählen</string>
     <plurals name="every_n_days">
         <item quantity="one">jeden Tag</item>
         <item quantity="other">alle %d Tage</item>
@@ -121,6 +128,8 @@
     <!-- Entry list -->
     <string name="sync_chip_current">Aktuell · vom Share, %1$s</string>
     <string name="sync_chip_offline">Offline-Kopie · Stand %1$s</string>
+    <string name="sync_chip_current_undated">Aktuell · vom Share</string>
+    <string name="sync_chip_offline_undated">Offline-Kopie</string>
     <string name="sync_chip_syncing">Synchronisiere …</string>
     <string name="filter_all">Alle</string>
     <string name="filter_by_group">Nach Gruppe filtern</string>
@@ -139,6 +148,7 @@
     <string name="banner_other_server_text">Unter %1$s antwortet ein anderer Server. Die App hat sich dort nicht angemeldet.</string>
     <string name="banner_candidate_title">Neue Version ließ sich nicht öffnen</string>
     <string name="banner_candidate_text">Die Datei vom Share passt nicht zu diesem Master-Passwort. Geöffnet ist die Offline-Kopie vom %1$s. Hast du das Passwort am PC geändert, sperr die App und entsperr sie mit dem neuen.</string>
+    <string name="banner_candidate_text_undated">Die Datei vom Share passt nicht zu diesem Master-Passwort. Geöffnet ist die Offline-Kopie. Hast du das Passwort am PC geändert, sperr die App und entsperr sie mit dem neuen.</string>
 
     <!-- Copy view (UI-02) -->
     <string name="detail_username">Benutzername</string>
@@ -163,9 +173,14 @@
     <string name="settings_section_sync">Synchronisation</string>
     <string name="settings_sync_current">Aktuell</string>
     <string name="settings_sync_current_text">Version vom Share, geladen %1$s.</string>
+    <string name="settings_sync_current_text_undated">Version vom Share.</string>
     <string name="settings_sync_offline">Share nicht erreichbar</string>
     <string name="settings_sync_offline_text">Geöffnet ist die Offline-Kopie vom %1$s.</string>
+    <string name="settings_sync_offline_text_undated">Geöffnet ist die Offline-Kopie.</string>
     <string name="settings_sync_other_server">Sync gestoppt: anderer Server</string>
+    <string name="settings_sync_login_failed">Anmeldung fehlgeschlagen</string>
+    <string name="settings_sync_file_not_found">Datei nicht gefunden</string>
+    <string name="settings_sync_no_access">Kein Zugriff</string>
     <string name="settings_sync_background">Im Hintergrund alle 4 Stunden, wenn der Share erreichbar ist.</string>
     <string name="settings_sync_now">Jetzt synchronisieren</string>
     <string name="settings_section_unlock">Entsperren</string>
@@ -199,6 +214,7 @@
 
     <!-- Autofill picker (AF-03 to AF-07) -->
     <string name="picker_fill_into">Ausfüllen in</string>
+    <string name="picker_not_set_up">KeyPass Mobile ist noch nicht eingerichtet.</string>
     <string name="picker_web_sub">%1$s · %2$s</string>
     <string name="picker_app_sub">App-Name „%1$s“, dient nur zum Sortieren</string>
     <string name="picker_app_sub_unknown">App-Name nicht lesbar</string>
@@ -233,12 +249,16 @@
     <string name="msg_copied_password">Passwort kopiert. Wird in %1$d s gelöscht.</string>
     <string name="msg_clipboard_cleared">Zwischenablage gelöscht.</string>
     <string name="msg_locked">Gesperrt.</string>
+    <string name="msg_locked_no_service">Gesperrt: Die App konnte nicht im Hintergrund weiterlaufen.</string>
+    <string name="msg_locked_source_changed">Gesperrt: Neue Datenbank gewählt. Bitte mit ihrem Master-Passwort entsperren.</string>
     <string name="msg_auto_locked">Gesperrt nach %1$s ohne Nutzung.</string>
     <string name="msg_setup_done_fingerprint">Eingerichtet. Ab jetzt reicht der Fingerabdruck.</string>
     <string name="msg_setup_done">Eingerichtet.</string>
     <string name="msg_fingerprint_renewed">Fingerabdruck ist wieder für %1$s aktiv.</string>
     <string name="msg_sync_no_newer">Keine neuere Version auf dem Share.</string>
     <string name="msg_sync_updated">Neue Version vom Share geladen.</string>
+    <string name="msg_database_loaded">Datenbank vom Share geladen.</string>
+    <string name="msg_sync_failed">Sync fehlgeschlagen. Die Offline-Kopie bleibt unverändert.</string>
     <string name="msg_sync_unreachable">Share nicht erreichbar. Die Offline-Kopie bleibt geöffnet.</string>
     <string name="msg_sync_other_server">Sync gestoppt: anderer Server.</string>
     <string name="msg_sync_started">Sync läuft im Hintergrund.</string>
@@ -247,6 +267,8 @@
     <string name="msg_share_not_found">Freigabe „%1$s“ nicht gefunden oder kein Zugriff.</string>
     <string name="msg_source_saved">Quelle gespeichert.</string>
     <string name="msg_fingerprint_failed">Fingerabdruck nicht erkannt. Gib das Master-Passwort ein.</string>
+    <string name="msg_fingerprint_store_failed">Fingerabdruck ließ sich nicht speichern. Beim nächsten Entsperren ist das Master-Passwort nötig.</string>
+    <string name="msg_fingerprint_on_next_password">Wird nach der nächsten Passworteingabe aktiv.</string>
     <plurals name="duration_seconds">
         <item quantity="one">%d Sekunde</item>
         <item quantity="other">%d Sekunden</item>
@@ -260,14 +282,6 @@
         <item quantity="other">%d Tage</item>
     </plurals>
 
-    <!-- For the service and notification (wired in the next phase, SE-03, AF-02) -->
-    <string name="notification_channel_unlocked">Entsperrt</string>
-    <string name="notification_unlocked_title">KeyPass Mobile entsperrt</string>
-    <string name="notification_unlocked_text">Sperrt nach %1$s ohne Nutzung.</string>
-    <string name="notification_action_lock">Sperren</string>
-    <string name="autofill_service_label">KeyPass Mobile</string>
-    <string name="autofill_suggestion_title">KeyPass Mobile</string>
-    <string name="biometric_prompt_title">KeyPass Mobile entsperren</string>
+    <!-- Not duplicated in :platform (fingerprint prompt of the setup, wired later, EN-03) -->
     <string name="biometric_prompt_subtitle_setup">Bestätige deinen Fingerabdruck, um ihn künftig zum Entsperren zu nutzen.</string>
-    <string name="biometric_prompt_negative">Master-Passwort</string>
 </resources>

@@ -48,6 +48,22 @@ class ListingTest {
     }
 
     @Test
+    fun otherFilesAreCountedButFoldersAndKdbxAreNot() {
+        val listing = toFolderListing(
+            listOf(
+                dir("."), dir(".."), dir("Ordner"), dir("ordner.txt"),
+                file("a.kdbx"), file("B.KDBX"),
+                file("notizen.txt"), file("test.kdbx.bak"), file("kdbx"), file(".DS_Store"), file("Thumbs.db"),
+            ),
+        )
+        assertEquals(listOf("Ordner", "ordner.txt", "a.kdbx", "B.KDBX"), listing.items.map { it.name })
+        // Only files: "." and ".." and folders are no files.
+        assertEquals(5, listing.otherFileCount)
+        assertEquals(0, toFolderListing(emptyList()).otherFileCount)
+        assertEquals(0, toFolderListing(listOf(dir("x"), file("y.kdbx"))).otherFileCount)
+    }
+
+    @Test
     fun germanOrderIsStableForNamesDifferingOnlyInCase() {
         val names = listOf("b", "B", "a", "A", "ä", "Ä")
         val sorted = names.sortedWith(germanNameOrder())

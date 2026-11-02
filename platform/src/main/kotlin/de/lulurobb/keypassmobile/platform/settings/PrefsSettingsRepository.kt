@@ -53,6 +53,7 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
         private const val IDLE = "lock.idleTimeout"
         private const val CLIPBOARD = "clipboard.timeout"
         private const val SETUP_DONE = "setup.completed"
+        private const val FINGERPRINT_EXPIRED = "unlock.fingerprintExpired"
 
         /** Separator of the path segments; cannot occur in SMB names. */
         private const val PATH_SEPARATOR = "/"
@@ -84,6 +85,7 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
                 idleTimeout = IdleTimeout.fromName(p.getString(IDLE, null)),
                 clipboardTimeout = ClipboardTimeout.fromName(p.getString(CLIPBOARD, null)),
                 setupCompleted = p.getBoolean(SETUP_DONE, false),
+                fingerprintExpired = p.getBoolean(FINGERPRINT_EXPIRED, false),
                 lastPasswordEntry = if (p.contains(LAST_ENTRY)) Instant.ofEpochMilli(p.getLong(LAST_ENTRY, 0)) else null,
                 // An unknown name must not silently become the default: then the password is due.
                 intervalAtEntry = intervalAtEntry?.let { name -> PasswordInterval.entries.firstOrNull { it.name == name } },
@@ -112,6 +114,7 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
             e.putString(IDLE, s.idleTimeout.name)
             e.putString(CLIPBOARD, s.clipboardTimeout.name)
             e.putBoolean(SETUP_DONE, s.setupCompleted)
+            e.putBoolean(FINGERPRINT_EXPIRED, s.fingerprintExpired)
             if (s.lastPasswordEntry == null) e.remove(LAST_ENTRY) else e.putLong(LAST_ENTRY, s.lastPasswordEntry.toEpochMilli())
             putOrRemove(e, INTERVAL_AT_ENTRY, s.intervalAtEntry?.name)
             return e

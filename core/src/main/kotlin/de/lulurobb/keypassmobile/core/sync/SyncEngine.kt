@@ -125,8 +125,17 @@ class SyncEngine(
      * with the key in memory; only then it replaces the offline copy (SY-05).
      * A version that the key does not open is kept as candidate. Errors are
      * returned as status; the offline copy is never lost.
+     *
+     * [beforeStore] runs on the opened new version before it replaces the offline
+     * copy (e.g. to build the entry index). If it throws, the new file is dropped,
+     * the offline copy stays and the result is [RefreshResult.Failed] with
+     * [SyncProblem.INVALID_FILE]; the caller then owns nothing.
      */
-    fun refreshAfterUnlock(remote: RemoteSource, passwordHash: ByteArray): RefreshResult = synchronized(remoteLock) {
+    fun refreshAfterUnlock(
+        remote: RemoteSource,
+        passwordHash: ByteArray,
+        beforeStore: (Vault) -> Unit = {},
+    ): RefreshResult = synchronized(remoteLock) {
         store.deleteQuietly(store.download)
         val stat = try {
             remote.stat()
@@ -152,11 +161,20 @@ class SyncEngine(
 
         when (val attempt = tryOpen(store.download, passwordHash)) {
             is Attempt.Opened -> {
+                try {
+                    beforeStore(attempt.vault)
+                } catch (e: Exception) {
+                    attempt.vault.close()
+                    store.deleteQuietly(store.download)
+                    return RefreshResult.Failed(recordProblem(SyncProblem.INVALID_FILE))
+                }
                 val stored = synchronized(fileLock) {
                     try {
                         // The candidate is older than the file just downloaded.
                         store.delete(store.candidate)
                         store.moveAtomically(store.download, store.offline)
+                        // The new file is in place: the offline copy of a previous source is obsolete.
+                        store.deleteQuietly(store.previousOffline)
                         commit(state.copy(offline = FileMeta.of(stat, now())).withoutCandidate().withSuccess(now()))
                         true
                     } catch (e: IOException) {
@@ -276,6 +294,56 @@ class SyncEngine(
     }
 
     /**
+     * The source now points to another file or server (settings change) and its
+     * file waits as candidate. Call it after the download and before saving the
+     * new source. The offline copy of the previous source is renamed
+     * (atomically) to a file that is never opened: until the new file opened
+     * (SY-05, then it is deleted) [unlock] cannot show the old file as the
+     * database of the new source, whatever happens to the state file. Its remote
+     * metadata is dropped as well. Waits for a running sync.
+     *
+     * Acts only when there is both an offline copy and a candidate. Without a
+     * candidate the offline copy already is (or never was) the new file, and
+     * renaming it would lose the database.
+     *
+     * @return true when the offline copy was set aside.
+     * @throws IOException when the copy cannot be renamed; the source must not be changed then.
+     */
+    fun markSourceChanged(): Boolean {
+        synchronized(remoteLock) {
+            synchronized(fileLock) {
+                if (!store.offline.isFile || !store.candidate.isFile) return false
+                store.moveAtomically(store.offline, store.previousOffline)
+                commit(state.copy(offline = null))
+                return true
+            }
+        }
+    }
+
+    /**
+     * Takes back [markSourceChanged] when the source change failed afterwards:
+     * the set-aside copy becomes the offline copy again (its metadata is gone, so
+     * the next refresh downloads once more).
+     */
+    fun undoSourceChanged() {
+        synchronized(remoteLock) {
+            synchronized(fileLock) {
+                if (!store.previousOffline.isFile || store.offline.isFile) return
+                store.moveAtomically(store.previousOffline, store.offline)
+            }
+        }
+    }
+
+    /** Deletes the candidate, e.g. the file of a source change that failed afterwards. Never throws. */
+    fun discardCandidate() {
+        synchronized(remoteLock) {
+            synchronized(fileLock) {
+                if (store.candidate.exists()) deleteCandidate()
+            }
+        }
+    }
+
+    /**
      * Deletes the offline copy, the candidate and all sync state, e.g. when
      * the source is changed to a different database. Waits for a running sync.
      *
@@ -286,6 +354,7 @@ class SyncEngine(
             store.delete(store.download)
             store.delete(store.candidate)
             store.delete(store.offline)
+            store.delete(store.previousOffline)
             commit(SyncState())
             openedVersion = null
         }
@@ -317,6 +386,8 @@ class SyncEngine(
             return
         }
         // Without metadata the next refresh downloads once more to learn the remote stat.
+        // The new file is in place: the offline copy of a previous source is obsolete.
+        store.deleteQuietly(store.previousOffline)
         commit(state.copy(offline = meta).withoutCandidate())
     }
 

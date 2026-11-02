@@ -50,23 +50,34 @@ internal class ClipboardGuard(
     private val mutableStatus = MutableStateFlow<ClipboardStatus>(ClipboardStatus.Idle)
     val status: StateFlow<ClipboardStatus> = mutableStatus.asStateFlow()
 
+    /** Guards everything below and the clipboard calls, so a copy and a clear never interleave. */
     private val lock = Any()
     private var holding: CopiedValue? = null
     private var ourTimestamp: Long? = null
     private var countdown: Job? = null
 
-    /** Copies [text] as sensitive clip and starts the countdown. Returns false if there is no clipboard. */
-    fun copy(value: CopiedValue, text: CharSequence, timeout: ClipboardTimeout): Boolean {
+    /** Changes with every copy; a countdown acts only while its copy is still the current one. */
+    private var token = 0L
+
+    /**
+     * Copies [text] as sensitive clip and starts the countdown. Returns false if there
+     * is no clipboard, or when [allowed] is false. [allowed] (the session is still
+     * unlocked) is checked inside the guard's lock: a lock that completes meanwhile
+     * clears under the same lock, so the secret never lands after the clear (SE-04).
+     */
+    fun copy(value: CopiedValue, text: CharSequence, timeout: ClipboardTimeout, allowed: () -> Boolean = { true }): Boolean {
         val cm = manager ?: return false
-        cm.setPrimaryClip(sensitiveClip(label, text))
-        // The app is in front while copying, so it may read its own clip back.
-        val stamp = try {
-            cm.primaryClipDescription?.takeIf { it.label?.toString() == label }?.timestamp
-        } catch (_: Exception) {
-            null
-        }
-        val end = elapsedMillis() + timeout.duration.toMillis()
         synchronized(lock) {
+            if (!allowed()) return false
+            cm.setPrimaryClip(sensitiveClip(label, text))
+            // The app is in front while copying, so it may read its own clip back.
+            val stamp = try {
+                cm.primaryClipDescription?.takeIf { it.label?.toString() == label }?.timestamp
+            } catch (_: Exception) {
+                null
+            }
+            val end = elapsedMillis() + timeout.duration.toMillis()
+            val mine = ++token
             holding = value
             ourTimestamp = stamp
             countdown?.cancel()
@@ -75,51 +86,52 @@ internal class ClipboardGuard(
                 while (true) {
                     val left = end - elapsedMillis()
                     if (left <= 0) break
-                    mutableStatus.value = ClipboardStatus.Holding(value, secondsUntil(end))
+                    synchronized(lock) {
+                        if (token != mine || holding == null) return@launch
+                        mutableStatus.value = ClipboardStatus.Holding(value, secondsUntil(end))
+                    }
                     // Ticks also catch up quickly after deep sleep, which delay() does not count.
                     delay(left.coerceAtMost(1_000L))
                 }
-                clearIfHolding(expected = value)
+                clear(onlyCopy = mine)
             }
         }
         return true
     }
 
     /** Clears our clip now, if one is pending (on lock). */
-    fun clearNow() {
-        val value = synchronized(lock) {
+    fun clearNow() = clear(onlyCopy = null)
+
+    /** Clears our clip; with [onlyCopy] only if that copy is still the current one (a stale countdown does nothing). */
+    private fun clear(onlyCopy: Long?) {
+        synchronized(lock) {
+            if (onlyCopy != null && token != onlyCopy) return
+            val expected = holding ?: return
             countdown?.cancel()
             countdown = null
-            holding
-        } ?: return
-        clearIfHolding(expected = value)
-    }
-
-    private fun clearIfHolding(expected: CopiedValue) {
-        val stamp = synchronized(lock) {
-            if (holding != expected) return
             holding = null
-            ourTimestamp.also { ourTimestamp = null }
-        }
-        try {
-            val cm = manager ?: return
-            val description = try {
-                cm.primaryClipDescription
+            val stamp = ourTimestamp
+            ourTimestamp = null
+            try {
+                val cm = manager ?: return
+                val description = try {
+                    cm.primaryClipDescription
+                } catch (_: Exception) {
+                    null
+                }
+                val clear = shouldClear(
+                    readable = description != null,
+                    clipLabel = description?.label?.toString(),
+                    clipTimestamp = description?.timestamp ?: 0L,
+                    ourLabel = label,
+                    ourTimestamp = stamp,
+                )
+                if (clear) cm.clearPrimaryClip()
             } catch (_: Exception) {
-                null
+                // Clipboard service unavailable: nothing more to do.
+            } finally {
+                mutableStatus.value = ClipboardStatus.Cleared(expected)
             }
-            val clear = shouldClear(
-                readable = description != null,
-                clipLabel = description?.label?.toString(),
-                clipTimestamp = description?.timestamp ?: 0L,
-                ourLabel = label,
-                ourTimestamp = stamp,
-            )
-            if (clear) cm.clearPrimaryClip()
-        } catch (_: Exception) {
-            // Clipboard service unavailable: nothing more to do.
-        } finally {
-            mutableStatus.value = ClipboardStatus.Cleared(expected)
         }
     }
 

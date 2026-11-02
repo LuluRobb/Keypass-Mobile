@@ -103,6 +103,8 @@ data class BrowseState(
     val step: SetupStep? = SetupStep(2),
     /** Name in the manual share dialog; null = dialog closed. */
     val shareNameDialog: String? = null,
+    /** "Diese Datei verwenden" / "Speichern" is working: the file is downloaded and saved. */
+    val saving: Boolean = false,
 )
 
 /**
@@ -163,6 +165,7 @@ fun BrowseScreen(
                     text = stringResource(if (state.step == null) R.string.browse_save else R.string.browse_use_file),
                     onClick = onUseFile,
                     enabled = state.selected != null,
+                    loading = state.saving,
                 )
             }
         }

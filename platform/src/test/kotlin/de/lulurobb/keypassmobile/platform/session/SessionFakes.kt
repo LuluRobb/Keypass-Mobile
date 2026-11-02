@@ -97,18 +97,28 @@ class FakeHashStore : HashStore {
     @Volatile
     var failStore = false
 
+    /** Called at the start of every store, e.g. to lock the session while the unlock waits for it. */
+    @Volatile
+    var onStore: (() -> Unit)? = null
+
+    /** Called at the start of every clear, e.g. to simulate a typed password arriving at the same time. */
+    @Volatile
+    var onClear: (() -> Unit)? = null
+
     @Volatile
     var clears = 0
 
     override fun hasStoredValue(): Boolean = stored != null
 
     override fun store(hash: ByteArray, validityEnd: Instant) {
+        onStore?.invoke()
         if (failStore) throw IllegalStateException("no fingerprint enrolled")
         stored = hash.copyOf()
         this.validityEnd = validityEnd
     }
 
     override fun clear() {
+        onClear?.invoke()
         stored = null
         validityEnd = null
         clears++
@@ -139,5 +149,17 @@ class MutableClock(@Volatile var now: Instant) : Clock() {
 
     fun advance(duration: Duration) {
         now = now.plus(duration)
+    }
+}
+
+/** In-memory [SwitchJournal] that remembers every write. */
+internal class MemoryJournal(var record: SwitchRecord? = null) : SwitchJournal {
+    val writes = mutableListOf<SwitchRecord?>()
+
+    override fun read(): SwitchRecord? = record
+
+    override fun write(record: SwitchRecord?) {
+        this.record = record
+        writes += record
     }
 }

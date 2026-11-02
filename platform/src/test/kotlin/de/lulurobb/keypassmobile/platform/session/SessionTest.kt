@@ -1,9 +1,11 @@
 package de.lulurobb.keypassmobile.platform.session
 
+import de.lulurobb.keypassmobile.core.index.EntryIndex
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import de.lulurobb.keypassmobile.core.sync.BackgroundSyncResult
 import de.lulurobb.keypassmobile.core.sync.CandidateRejection
+import de.lulurobb.keypassmobile.core.sync.CandidateState
 import de.lulurobb.keypassmobile.core.sync.KeySource
 import de.lulurobb.keypassmobile.core.sync.OpenedVersion
 import de.lulurobb.keypassmobile.core.sync.RemoteError
@@ -11,14 +13,20 @@ import de.lulurobb.keypassmobile.core.sync.RemoteException
 import de.lulurobb.keypassmobile.core.sync.SyncEngine
 import de.lulurobb.keypassmobile.core.sync.SyncProblem
 import de.lulurobb.keypassmobile.core.sync.UnlockResult
+import de.lulurobb.keypassmobile.model.Vault
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
 import de.lulurobb.keypassmobile.platform.settings.MemorySettingsRepository
 import de.lulurobb.keypassmobile.platform.settings.SettingsRepository
 import de.lulurobb.keypassmobile.platform.settings.SourceConfig
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -31,6 +39,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -48,6 +57,9 @@ class SessionTest {
     private val hashes = FakeHashStore()
     private val effects = RecordingEffects()
     private var remote: FakeRemote? = null
+
+    /** Order of what the session asked for, e.g. "open" (the configured remote) and the steps of a [StubSwitch]. */
+    private val events = mutableListOf<String>()
     private lateinit var engine: SyncEngine
 
     @BeforeEach
@@ -58,17 +70,28 @@ class SessionTest {
     private fun TestScope.session(
         settings: SettingsRepository = MemorySettingsRepository(),
         elapsed: (() -> Long)? = null,
+        effects: SessionEffects = this@SessionTest.effects,
+        indexer: (Vault) -> EntryIndex = ::EntryIndex,
+        scope: CoroutineScope = backgroundScope,
+        journal: SwitchJournal = SwitchJournal.None,
+        clearPassword: () -> Unit = {},
     ) = Session(
         engine = engine,
         hashStore = hashes,
         settings = settings,
-        remotes = { remote },
+        remotes = {
+            events += "open"
+            remote
+        },
         effects = effects,
-        scope = backgroundScope,
+        scope = scope,
         io = StandardTestDispatcher(testScheduler),
         clock = clock,
         elapsedMillis = elapsed ?: { testScheduler.currentTime },
         hasher = { String(it).toByteArray() },
+        indexer = indexer,
+        journal = journal,
+        clearSmbPassword = clearPassword,
     )
 
     /** Offline copy that opens with [key]; the remote serves the same version. */
@@ -100,6 +123,7 @@ class SessionTest {
         runCurrent()
 
         assertEquals(7, outcome.fingerprintRenewedForDays)
+        assertFalse(outcome.fingerprintStoreFailed)
         assertFalse(outcome.newVersionOpened)
         assertNull(outcome.candidateRejected)
         assertTrue(password.all { it == '\u0000' }, "typed password must be wiped")
@@ -120,6 +144,7 @@ class SessionTest {
         val outcome = assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
         runCurrent()
         assertNull(outcome.fingerprintRenewedForDays)
+        assertFalse(outcome.fingerprintStoreFailed)
         assertNull(hashes.stored)
     }
 
@@ -140,11 +165,26 @@ class SessionTest {
         seedOffline("pw", "v1")
         hashes.failStore = true
         val s = session(MemorySettingsRepository(KpmSettings(fingerprintEnabled = true)))
-        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
+        val outcome = assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
         runCurrent()
         assertIs<SessionState.Unlocked>(s.state.value)
         assertNull(hashes.stored)
         assertEquals(UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP), s.unlockOffer())
+        // No false success: the outcome does not claim the fingerprint is active.
+        assertNull(outcome.fingerprintRenewedForDays)
+        assertTrue(outcome.fingerprintStoreFailed)
+        assertFalse(s.storeJob!!.await())
+    }
+
+    @Test
+    fun `outcome waits for the store of the hash and reports its success`() = runTest {
+        seedOffline("pw", "v1")
+        val s = session(MemorySettingsRepository(KpmSettings(fingerprintEnabled = true)))
+        val outcome = assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
+        // No runCurrent(): the value is stored by the time the outcome is there.
+        assertContentEquals("pw".toByteArray(), hashes.stored)
+        assertEquals(7, outcome.fingerprintRenewedForDays)
+        assertFalse(outcome.fingerprintStoreFailed)
     }
 
     @Test
@@ -229,12 +269,84 @@ class SessionTest {
     }
 
     @Test
-    fun `due password deletes the stored value`() = runTest {
+    fun `due password deletes the stored value and keeps saying why`() = runTest {
         hashes.stored = ByteArray(32)
         val s = session(fingerprintSettings(entry = t0.minus(Duration.ofDays(7))))
         assertEquals(UnlockOffer.Password(PasswordRequiredReason.DUE), s.unlockOffer())
-        runCurrent()
+        // Deleted when the offer is there, no runCurrent() needed.
         assertNull(hashes.stored)
+        assertEquals(1, hashes.clears)
+        // The reason survives the deletion until the next typed password.
+        assertEquals(UnlockOffer.Password(PasswordRequiredReason.DUE), s.unlockOffer())
+        assertFalse(s.isFingerprintUsable())
+        assertEquals(1, hashes.clears)
+    }
+
+    @Test
+    fun `a stale entry without a stored value is not reported as due`() = runTest {
+        // The fingerprint was switched on long after the last entry; nothing was ever stored.
+        val s = session(fingerprintSettings(entry = t0.minus(Duration.ofDays(30))))
+        assertEquals(UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP), s.unlockOffer())
+        assertFalse(s.expireFingerprint())
+    }
+
+    @Test
+    fun `the expired notice is persisted and ends with the next typed password`() = runTest {
+        seedOffline("pw", "v1")
+        hashes.stored = ByteArray(32)
+        val settings = fingerprintSettings(entry = t0.minus(Duration.ofDays(8)))
+        val s = session(settings)
+        assertEquals(UnlockOffer.Password(PasswordRequiredReason.DUE), s.unlockOffer())
+        assertTrue(settings.settings.value.fingerprintExpired)
+        // The fingerprint path itself (KpmPlatform) deletes through the same function.
+        s.clearStoredHash(expired = true)
+        assertEquals(UnlockOffer.Password(PasswordRequiredReason.DUE), s.unlockOffer())
+
+        s.unlockWithPassword("pw".toCharArray())
+        assertFalse(settings.settings.value.fingerprintExpired)
+        assertContentEquals("pw".toByteArray(), hashes.stored)
+    }
+
+    @Test
+    fun `expiry cleanup never deletes a hash that a typed password stored meanwhile`() = runTest {
+        seedOffline("pw", "v1")
+        hashes.stored = "old".toByteArray()
+        val s = session(fingerprintSettings(entry = t0.minus(Duration.ofDays(8))))
+        // The typed password renews the entry time and stores the new hash.
+        s.unlockWithPassword("pw".toCharArray())
+        assertContentEquals("pw".toByteArray(), hashes.stored)
+        // A cleanup that still looks at the old situation decides again inside the lock: nothing to delete.
+        assertFalse(s.expireFingerprint())
+        assertContentEquals("pw".toByteArray(), hashes.stored)
+        assertEquals(0, hashes.clears)
+    }
+
+    @Test
+    fun `fingerprint queries have no side effects, the expiry cleanup is explicit`() = runTest {
+        hashes.stored = ByteArray(32)
+        val s = session(fingerprintSettings(entry = t0.minus(Duration.ofDays(7))))
+
+        assertFalse(s.isFingerprintUsable())
+        assertEquals(PasswordRequiredReason.DUE, s.fingerprintBlocker())
+        runCurrent()
+        assertTrue(hashes.stored != null, "queries must not delete the stored value")
+        assertEquals(0, hashes.clears)
+
+        assertTrue(s.expireFingerprint())
+        assertNull(hashes.stored)
+        assertEquals(1, hashes.clears)
+        // Nothing stored any more: nothing to expire.
+        assertFalse(s.expireFingerprint())
+    }
+
+    @Test
+    fun `expiry cleanup leaves a valid value alone`() = runTest {
+        hashes.stored = ByteArray(32)
+        val fresh = session(fingerprintSettings(entry = t0.minus(Duration.ofDays(6))))
+        assertFalse(fresh.expireFingerprint())
+        runCurrent()
+        assertTrue(hashes.stored != null)
+        assertEquals(0, hashes.clears)
     }
 
     @Test
@@ -316,6 +428,30 @@ class SessionTest {
         s.lock(LockReason.TaskRemoved)
         assertEquals(LockReason.User, assertIs<SessionState.Locked>(s.state.value).reason)
         assertEquals(1, effects.locks.size)
+    }
+
+    @Test
+    fun `refused foreground service locks right after the unlock`() = runTest {
+        seedOffline("pw", "v1")
+        lateinit var s: Session
+        // As KpmPlatform does when UnlockedService.start() returns false.
+        val refusing = object : SessionEffects {
+            override fun onUnlocked() = s.lock(LockReason.ServiceRefused)
+
+            override fun onLocked(reason: LockReason) = effects.onLocked(reason)
+        }
+        s = session(effects = refusing)
+        val reports = collectReports(s)
+        // The outcome does not claim Unlocked: the session is locked already.
+        assertEquals(UnlockOutcome.Aborted, s.unlockWithPassword("pw".toCharArray()))
+        runCurrent()
+
+        assertTrue(reports.isEmpty(), "no refresh after the lock")
+        assertEquals(0, remote!!.closed, "the share was not contacted")
+        assertEquals(LockReason.ServiceRefused, assertIs<SessionState.Locked>(s.state.value).reason)
+        assertEquals(listOf<LockReason>(LockReason.ServiceRefused), effects.locks)
+        assertTrue(opener.secrets.all { it.closed }, "every vault closed")
+        assertTrue(opener.hashes.drop(1).all { it.isWiped() }, "session hash wiped")
     }
 
     @Test
@@ -424,10 +560,13 @@ class SessionTest {
         seedOffline("pw", "v1")
         remote!!.publish(kdbx("pw", "v2"), t0)
         val s = session()
+        val reports = collectReports(s)
         remote!!.onDownload = { s.lock(LockReason.User) }
         s.unlockWithPassword("pw".toCharArray())
         runCurrent()
 
+        // Not Updated: nothing is shown, the newer version waits for the next unlock.
+        assertEquals(listOf(SyncTrigger.AFTER_UNLOCK to SyncResult.CandidateReady), reports.pairs())
         assertIs<SessionState.Locked>(s.state.value)
         assertEquals(3, opener.secrets.size, "seed, unlock and refresh opened a vault each")
         assertTrue(opener.secrets.all { it.closed }, "every vault closed")
@@ -447,6 +586,491 @@ class SessionTest {
         assertTrue(s.sync.value.status.hasLocalDatabase)
         val outcome = assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
         assertTrue(outcome.newVersionOpened)
+    }
+
+    private fun List<SyncReport>.pairs() = map { it.trigger to it.result }
+
+    /** Collects [Session.syncReports] from now on; the collector starts eagerly. */
+    private fun TestScope.collectReports(s: Session): List<SyncReport> {
+        val reports = mutableListOf<SyncReport>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { s.syncReports.toList(reports) }
+        return reports
+    }
+
+    @Test
+    fun `the refresh after unlock is reported with its result`() = runTest {
+        seedOffline("pw", "v1")
+        remote!!.publish(kdbx("pw", "v2"), t0)
+        val s = session()
+        val reports = collectReports(s)
+        s.unlockWithPassword("pw".toCharArray())
+        assertTrue(reports.isEmpty(), "the refresh runs in the background")
+        runCurrent()
+        assertEquals(listOf(SyncTrigger.AFTER_UNLOCK to SyncResult.Updated), reports.pairs())
+        assertEquals(reports.last(), s.lastSyncReport.value)
+    }
+
+    @Test
+    fun `the refresh after unlock reports failure, up to date and rejection`() = runTest {
+        seedOffline("pw", "v1")
+        val s = session()
+        val reports = collectReports(s)
+
+        remote!!.statError = RemoteException(RemoteError.UNREACHABLE)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        s.lock(LockReason.User)
+
+        remote!!.statError = null
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        s.lock(LockReason.User)
+
+        remote!!.publish(kdbx("new", "v2"), t0)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+
+        assertEquals(
+            listOf(
+                SyncTrigger.AFTER_UNLOCK to SyncResult.Failed(SyncProblem.UNREACHABLE),
+                SyncTrigger.AFTER_UNLOCK to SyncResult.UpToDate,
+                SyncTrigger.AFTER_UNLOCK to SyncResult.NewVersionRejected,
+            ),
+            reports.pairs(),
+        )
+    }
+
+    @Test
+    fun `manual, scheduled and setup runs are reported with their trigger`() = runTest {
+        remote = FakeRemote(kdbx("pw", "v1"), t0)
+        val s = session()
+        val reports = collectReports(s)
+
+        assertEquals(SyncResult.CandidateReady, s.syncNow())
+        assertEquals(SyncResult.CandidateReady, s.syncWith(remote!!))
+        assertEquals(SyncResult.CandidateReady, s.syncNow(SyncTrigger.SCHEDULED))
+
+        assertEquals(
+            listOf(
+                SyncTrigger.REQUESTED to SyncResult.CandidateReady,
+                SyncTrigger.SETUP to SyncResult.CandidateReady,
+                SyncTrigger.SCHEDULED to SyncResult.CandidateReady,
+            ),
+            reports.pairs(),
+        )
+        // Equal results of different runs differ by id; the state holds the newest.
+        assertEquals(listOf(1L, 2L, 3L), reports.map { it.id })
+        assertEquals(reports.last(), s.lastSyncReport.value)
+    }
+
+    @Test
+    fun `a report that ended before anyone collected stays in the state`() = runTest {
+        remote = FakeRemote(kdbx("pw", "v1"), t0)
+        val s = session()
+        assertNull(s.lastSyncReport.value)
+        s.syncNow()
+        val late = collectReports(s)
+        runCurrent()
+        assertTrue(late.isEmpty(), "the event flow does not replay")
+        assertEquals(SyncReport(1L, SyncTrigger.REQUESTED, SyncResult.CandidateReady), s.lastSyncReport.value)
+    }
+
+    @Test
+    fun `effects hear about the lock while the session is still unlocked`() = runTest {
+        seedOffline("pw", "v1")
+        lateinit var s: Session
+        var stateAtLocking: SessionState? = null
+        val watching = object : SessionEffects {
+            override fun onUnlocked() = Unit
+
+            override fun onLocking() {
+                stateAtLocking = s.state.value
+            }
+
+            override fun onLocked(reason: LockReason) = Unit
+        }
+        s = session(effects = watching)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        s.lock(LockReason.User)
+        assertIs<SessionState.Unlocked>(stateAtLocking)
+        assertIs<SessionState.Locked>(s.state.value)
+    }
+
+    @Test
+    fun `an unlock that fails after opening the vault closes it and leaves no Unlocking state`() = runTest {
+        seedOffline("pw", "v1")
+        val failing = object : SettingsRepository {
+            private val inner = MemorySettingsRepository()
+            override val settings = inner.settings
+            var fail = true
+
+            override fun update(transform: (KpmSettings) -> KpmSettings): KpmSettings {
+                if (fail) throw IllegalStateException("disk full")
+                return inner.update(transform)
+            }
+        }
+        // Like the platform's scope: a failing unlock reaches the caller only, not the test's error handler.
+        val s = session(failing, scope = CoroutineScope(backgroundScope.coroutineContext + SupervisorJob()))
+        val password = "pw".toCharArray()
+        assertFailsWith<IllegalStateException> { s.unlockWithPassword(password) }
+
+        assertTrue(password.all { it == '\u0000' })
+        assertIs<SessionState.Locked>(s.state.value)
+        assertTrue(opener.secrets.last().closed, "the opened vault is closed")
+        assertTrue(opener.hashes.last().isWiped(), "the hash is wiped")
+        assertEquals(0, effects.unlocked)
+
+        // The session is usable again.
+        failing.fail = false
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
+    }
+
+    @Test
+    fun `a failing indexer at the refresh is no Updated and keeps the old vault`() = runTest {
+        seedOffline("pw", "v1")
+        remote!!.publish(kdbx("pw", "v2"), t0)
+        var calls = 0
+        val s = session(indexer = { vault -> if (calls++ == 0) EntryIndex(vault) else throw IllegalStateException("index") })
+        val reports = collectReports(s)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+
+        assertEquals(listOf(SyncTrigger.AFTER_UNLOCK to SyncResult.Failed(SyncProblem.INVALID_FILE)), reports.pairs())
+        val unlocked = assertIs<SessionState.Unlocked>(s.state.value)
+        assertEquals("v1", unlocked.vault.rootGroupName)
+        assertEquals(0, unlocked.version)
+        assertTrue(opener.secrets[2].closed, "the vault that could not be shown is closed")
+        assertFalse(opener.secrets[1].closed)
+        // The old offline copy was not replaced, and the problem is visible.
+        assertEquals(SyncProblem.INVALID_FILE, s.sync.value.status.lastProblem)
+        assertEquals(kdbx("pw", "v1"), File(dir, "sync/offline.kdbx").readText())
+    }
+
+    @Test
+    fun `source change while unlocked with another password locks the session`() = runTest {
+        seedOffline("old", "v1")
+        val s = session()
+        s.unlockWithPassword("old".toCharArray())
+        runCurrent()
+        remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+
+        assertEquals(SourceSwitchResult.Saved(SyncResult.NewVersionRejected), s.switchSource(StubSwitch(remote!!, events)))
+
+        assertEquals(LockReason.SourceChanged, assertIs<SessionState.Locked>(s.state.value).reason)
+        assertTrue(opener.secrets[1].closed, "the old vault is closed")
+        assertTrue(File(dir, "sync/offline-previous.kdbx").exists())
+        assertFalse(File(dir, "sync/offline.kdbx").exists())
+        // The old password no longer opens anything, the new one opens the new file.
+        assertEquals(UnlockOutcome.WrongPassword, s.unlockWithPassword("old".toCharArray()))
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("new".toCharArray()))
+        assertEquals("other", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
+        runCurrent()
+        assertFalse(File(dir, "sync/offline-previous.kdbx").exists())
+    }
+
+
+    @Test
+    fun `source change keeps the old copy but does not open it as the new database`() = runTest {
+        seedOffline("old", "v1")
+        val s = session()
+        // The new source: another file with another master password, downloaded as candidate (locked).
+        remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(remote!!, events)))
+        assertEquals(listOf("stage", "commit", "finish"), events)
+        assertTrue(s.sync.value.status.hasLocalDatabase, "the candidate of the new source")
+
+        // Fingerprint with the old hash: rejected, the stored value is deleted, the old file is not shown.
+        hashes.stored = "old".toByteArray()
+        assertEquals(
+            UnlockOutcome.PasswordRequired(PasswordRequiredReason.STORED_VALUE_REJECTED),
+            s.unlockWithStoredHash("old".toByteArray()),
+        )
+        assertNull(hashes.stored)
+        assertIs<SessionState.Locked>(s.state.value)
+        assertEquals(UnlockOutcome.WrongPassword, s.unlockWithPassword("old".toCharArray()))
+
+        // The new file opens and replaces the old copy.
+        val outcome = assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("new".toCharArray()))
+        assertTrue(outcome.newVersionOpened)
+        assertEquals("other", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
+        runCurrent()
+        s.lock(LockReason.User)
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("new".toCharArray()))
+        assertEquals("other", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
+    }
+
+    @Test
+    fun `locked while the new file replaced the offline copy, nothing is set aside`() = runTest {
+        seedOffline("pw", "v1")
+        val s = session()
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        val newRemote = FakeRemote(kdbx("pw", "other"), t0.minus(Duration.ofDays(2)))
+        // The session is locked during the download: the engine opens and stores the new file anyway.
+        newRemote.onDownload = { s.lock(LockReason.User) }
+
+        val result = s.switchSource(StubSwitch(newRemote, events))
+
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), result)
+        assertEquals(kdbx("pw", "other"), File(dir, "sync/offline.kdbx").readText(), "the new file is the offline copy")
+        assertFalse(File(dir, "sync/offline-previous.kdbx").exists())
+        assertEquals(LockReason.User, assertIs<SessionState.Locked>(s.state.value).reason)
+        // No database was lost: the next unlock opens the new file.
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
+        assertEquals("other", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
+    }
+
+    @Test
+    fun `a failed switch restores everything and deletes the foreign candidate`() = runTest {
+        seedOffline("old", "v1")
+        val s = session()
+        val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        val stub = StubSwitch(newRemote, events).apply { failCommit = true }
+
+        assertEquals(SourceSwitchResult.Failed(SyncProblem.LOCAL_STORAGE), s.switchSource(stub))
+
+        assertEquals(listOf("stage", "rollback", "finish"), events)
+        assertEquals(kdbx("old", "v1"), File(dir, "sync/offline.kdbx").readText(), "the old copy is back")
+        assertFalse(File(dir, "sync/offline-previous.kdbx").exists())
+        assertFalse(File(dir, "sync/candidate.kdbx").exists(), "the foreign file is gone")
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("old".toCharArray()))
+    }
+
+    @Test
+    fun `a failing stage changes nothing`() = runTest {
+        seedOffline("old", "v1")
+        val s = session()
+        val stub = StubSwitch(FakeRemote(kdbx("new", "other"), t0), events).apply { failStage = true }
+        assertEquals(SourceSwitchResult.Failed(SyncProblem.LOCAL_STORAGE), s.switchSource(stub))
+        // Stage may have replaced something before it threw: rollback runs; the old copy is back, the foreign file gone.
+        assertEquals(listOf("rollback", "finish"), events)
+        assertFalse(File(dir, "sync/candidate.kdbx").exists())
+        assertFalse(File(dir, "sync/offline-previous.kdbx").exists())
+        assertEquals(kdbx("old", "v1"), File(dir, "sync/offline.kdbx").readText())
+    }
+
+    @Test
+    fun `the new password is stored only after the download, right before the commit`() = runTest {
+        seedOffline("old", "v1")
+        val s = session()
+        val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        newRemote.onDownload = { events += "download" }
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(newRemote, events)))
+        assertEquals(listOf("download", "stage", "commit", "finish"), events)
+    }
+
+    @Test
+    fun `the journal follows the steps and is empty afterwards, the report comes only on success`() = runTest {
+        seedOffline("old", "v1")
+        val journal = MemoryJournal()
+        val s = session(journal = journal)
+        val reports = collectReports(s)
+        val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(newRemote, events)))
+
+        assertNull(journal.record)
+        assertTrue(journal.writes.first()!!.let { !it.setAside && !it.passwordTouched })
+        assertTrue(journal.writes.any { it != null && it.setAside && it.passwordTouched })
+        assertEquals(listOf(SyncTrigger.SETUP to SyncResult.CandidateReady), reports.pairs())
+
+        // A failed change reports nothing.
+        val failing = StubSwitch(FakeRemote(kdbx("third", "x"), t0.minus(Duration.ofDays(3))), events).apply { failCommit = true }
+        assertEquals(SourceSwitchResult.Failed(SyncProblem.LOCAL_STORAGE), s.switchSource(failing))
+        assertEquals(1, reports.size)
+        assertNull(journal.record)
+    }
+
+    @Test
+    fun `unlocked with the same password a failing commit locks and deletes the offline copy that the new file replaced`() = runTest {
+        seedOffline("pw", "v1")
+        val s = session()
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        val reports = collectReports(s)
+        val newRemote = FakeRemote(kdbx("pw", "other"), t0.minus(Duration.ofDays(2)))
+        val stub = StubSwitch(newRemote, events).apply { failCommit = true }
+
+        assertEquals(SourceSwitchResult.Failed(SyncProblem.LOCAL_STORAGE), s.switchSource(stub))
+
+        // The old source must never show the new file: locked, and the replaced copy is gone.
+        assertEquals(LockReason.SourceChanged, assertIs<SessionState.Locked>(s.state.value).reason)
+        assertFalse(s.sync.value.status.hasLocalDatabase)
+        assertTrue(reports.isEmpty())
+        assertEquals(UnlockOutcome.NoDatabase, s.unlockWithPassword("pw".toCharArray()))
+        assertEquals(listOf("stage", "rollback", "finish"), events.filter { it != "open" })
+    }
+
+    @Test
+    fun `an unlock cannot start while a source change runs`() = runTest {
+        seedOffline("old", "v1")
+        val s = session()
+        var outcome: UnlockOutcome? = null
+        val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        newRemote.onDownload = { backgroundScope.launch { outcome = s.unlockWithPassword("old".toCharArray()) } }
+
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(newRemote, events)))
+        runCurrent()
+
+        assertEquals(UnlockOutcome.Busy, outcome)
+        // Afterwards unlocking works again (with the new file's password).
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("new".toCharArray()))
+    }
+
+    // ---- restart in the middle of a source change ----
+
+    private val oldSource = SourceConfig("nas", 445, "", "kpm", "daten", listOf("old.kdbx"))
+    private val newSource = SourceConfig("nas", 445, "", "kpm", "daten", listOf("new.kdbx"))
+
+    /** The old process died after the new file waits as candidate and the old copy was set aside. */
+    private fun crashedAfterSetAside(): SwitchRecord {
+        seedOffline("old", "v1")
+        val r = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        assertEquals(BackgroundSyncResult.CandidateDownloaded, engine.backgroundSync(r))
+        assertTrue(engine.markSourceChanged())
+        // A new process: new engine on the same files.
+        engine = SyncEngine(File(dir, "sync"), opener, clock)
+        return SwitchRecord(newSource, differs = true, setAside = true, offlineReplaced = false, passwordTouched = false)
+    }
+
+    @Test
+    fun `restart after a crash before the commit puts the old copy back and drops the foreign file`() = runTest {
+        val journal = MemoryJournal(crashedAfterSetAside())
+        var cleared = 0
+        val s = session(MemorySettingsRepository(KpmSettings(source = oldSource)), journal = journal, clearPassword = { cleared++ })
+
+        // Until the recovery is done, no unlock.
+        assertEquals(UnlockOutcome.Busy, s.unlockWithPassword("old".toCharArray()))
+        s.recoverInterruptedSwitch()
+
+        assertNull(journal.record)
+        assertEquals(kdbx("old", "v1"), File(dir, "sync/offline.kdbx").readText())
+        assertFalse(File(dir, "sync/offline-previous.kdbx").exists())
+        assertFalse(File(dir, "sync/candidate.kdbx").exists())
+        assertEquals(0, cleared, "the password was not touched yet")
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("old".toCharArray()))
+    }
+
+    @Test
+    fun `restart after the password may have been replaced clears it so the user is asked`() = runTest {
+        val journal = MemoryJournal(crashedAfterSetAside().copy(passwordTouched = true))
+        var cleared = 0
+        val s = session(MemorySettingsRepository(KpmSettings(source = oldSource)), journal = journal, clearPassword = { cleared++ })
+        s.recoverInterruptedSwitch()
+        assertEquals(1, cleared)
+        assertNull(journal.record)
+        assertEquals(kdbx("old", "v1"), File(dir, "sync/offline.kdbx").readText())
+    }
+
+    @Test
+    fun `restart after the source was saved leaves the finished change alone`() = runTest {
+        val journal = MemoryJournal(crashedAfterSetAside().copy(passwordTouched = true))
+        var cleared = 0
+        val s = session(MemorySettingsRepository(KpmSettings(source = newSource)), journal = journal, clearPassword = { cleared++ })
+        s.recoverInterruptedSwitch()
+        assertEquals(0, cleared)
+        assertNull(journal.record)
+        assertTrue(File(dir, "sync/candidate.kdbx").exists())
+        assertFalse(File(dir, "sync/offline.kdbx").exists())
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("new".toCharArray()))
+    }
+
+    @Test
+    fun `restart after the new file replaced the offline copy deletes it`() = runTest {
+        seedOffline("pw", "v1")
+        val journal = MemoryJournal(SwitchRecord(newSource, differs = true, setAside = false, offlineReplaced = true, passwordTouched = false))
+        val s = session(MemorySettingsRepository(KpmSettings(source = oldSource)), journal = journal)
+        s.recoverInterruptedSwitch()
+        assertFalse(s.sync.value.status.hasLocalDatabase)
+        assertNull(journal.record)
+    }
+
+    @Test
+    fun `a switch without an interrupted record needs no recovery`() = runTest {
+        seedOffline("pw", "v1")
+        val s = session(journal = MemoryJournal())
+        s.recoverInterruptedSwitch()
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
+    }
+
+    @Test
+    fun `a typed password during the cleanup keeps the notice from outliving it`() = runTest {
+        hashes.stored = ByteArray(32)
+        val settings = fingerprintSettings(entry = t0.minus(Duration.ofDays(8)))
+        val s = session(settings)
+        // A typed password renews the entry while the cleanup deletes the old value.
+        hashes.onClear = { settings.update { it.copy(lastPasswordEntry = t0, fingerprintExpired = false) } }
+        assertTrue(s.expireFingerprint())
+        assertFalse(settings.settings.value.fingerprintExpired)
+    }
+
+    @Test
+    fun `no other sync reads the old source while the source is switched`() = runTest {
+        seedOffline("pw", "v1")
+        val s = session()
+        val newRemote = FakeRemote(kdbx("pw2", "other"), t0.minus(Duration.ofDays(2)))
+        // A scheduled sync wants to start in the middle of the switch.
+        newRemote.onDownload = { backgroundScope.launch { s.syncNow(SyncTrigger.SCHEDULED) } }
+        val stub = StubSwitch(newRemote, events).apply { onCommit = { this@SessionTest.remote = newRemote } }
+
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(stub))
+        runCurrent()
+
+        // The other sync ran after the commit, so it used the new source and kept the new candidate.
+        assertEquals(listOf("stage", "commit", "finish", "open"), events)
+        assertEquals(CandidateState.PENDING, s.sync.value.status.candidate)
+        assertTrue(File(dir, "sync/candidate.kdbx").exists())
+    }
+
+    @Test
+    fun `lock proceeds even if the effects throw`() = runTest {
+        seedOffline("pw", "v1")
+        val throwing = object : SessionEffects {
+            override fun onUnlocked() = Unit
+
+            override fun onLocking() = throw IllegalStateException("clipboard")
+
+            override fun onLocked(reason: LockReason) = throw IllegalStateException("service")
+        }
+        val s = session(effects = throwing)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        s.lock(LockReason.User)
+        assertEquals(LockReason.User, assertIs<SessionState.Locked>(s.state.value).reason)
+        assertTrue(opener.secrets.last().closed)
+        assertTrue(opener.hashes.last().isWiped())
+    }
+
+    @Test
+    fun `locked while the unlock waits for the fingerprint store the outcome is Aborted`() = runTest {
+        seedOffline("pw", "v1")
+        lateinit var s: Session
+        hashes.onStore = { s.lock(LockReason.User) }
+        s = session(MemorySettingsRepository(KpmSettings(fingerprintEnabled = true)))
+        val reports = collectReports(s)
+
+        assertEquals(UnlockOutcome.Aborted, s.unlockWithPassword("pw".toCharArray()))
+
+        assertEquals(LockReason.User, assertIs<SessionState.Locked>(s.state.value).reason)
+        runCurrent()
+        assertTrue(opener.secrets.all { it.closed })
+        // The refresh that was already started ran locked: no vault was shown.
+        assertTrue(reports.all { it.result != SyncResult.Updated })
+    }
+
+    @Test
+    fun `source change while unlocked with the same password replaces the old copy at once`() = runTest {
+        seedOffline("pw", "v1")
+        val s = session()
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        remote = FakeRemote(kdbx("pw", "other"), t0.minus(Duration.ofDays(2)))
+        assertEquals(SyncResult.Updated, s.syncWith(remote!!))
+        assertEquals("other", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
+        s.lock(LockReason.User)
+        s.unlockWithPassword("pw".toCharArray())
+        assertEquals("other", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
     }
 
     @Test
@@ -481,5 +1105,37 @@ class SessionTest {
         assertEquals(TrustedServer(reitano, t0), settings.settings.value.trustedServer)
         assertNull(settings.settings.value.pendingServerGuid)
         assertNull(s.sync.value.serverChange)
+    }
+}
+
+/** A [SourceSwitch] that only records what the session asked for. */
+private class StubSwitch(
+    override val remote: de.lulurobb.keypassmobile.core.sync.RemoteSource,
+    private val events: MutableList<String>,
+    override val differs: Boolean = true,
+) : SourceSwitch {
+    override val target = SourceConfig("nas", 445, "", "kpm", "daten", listOf("new.kdbx"))
+
+    var failCommit = false
+    var failStage = false
+    var onCommit: (() -> Unit)? = null
+
+    override fun stage() {
+        if (failStage) throw IllegalStateException("keystore")
+        events += "stage"
+    }
+
+    override fun commit() {
+        if (failCommit) throw IllegalStateException("settings")
+        onCommit?.invoke()
+        events += "commit"
+    }
+
+    override fun rollback() {
+        events += "rollback"
+    }
+
+    override fun finish() {
+        events += "finish"
     }
 }

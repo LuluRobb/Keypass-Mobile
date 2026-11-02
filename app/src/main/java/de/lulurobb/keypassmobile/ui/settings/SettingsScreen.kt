@@ -273,18 +273,26 @@ private fun SyncRow(sync: SyncState) {
         is SyncStatus.Current -> Triple(
             KpmIcons.CheckCircle,
             stringResource(R.string.settings_sync_current),
-            stringResource(R.string.settings_sync_current_text, relativeStamp(status.loadedAt)),
+            status.loadedAt
+                ?.let { stringResource(R.string.settings_sync_current_text, relativeStamp(it)) }
+                ?: stringResource(R.string.settings_sync_current_text_undated),
         )
         is SyncStatus.OfflineCopy -> Triple(
             KpmIcons.CloudOff,
             stringResource(
                 when (status.reason) {
+                    null -> R.string.sync_chip_syncing
                     OfflineReason.ShareUnreachable -> R.string.settings_sync_offline
                     OfflineReason.OtherServer -> R.string.settings_sync_other_server
                     OfflineReason.NewVersionRejected -> R.string.banner_candidate_title
+                    OfflineReason.LoginFailed -> R.string.settings_sync_login_failed
+                    OfflineReason.FileNotFound -> R.string.settings_sync_file_not_found
+                    OfflineReason.NoAccess -> R.string.settings_sync_no_access
                 },
             ),
-            stringResource(R.string.settings_sync_offline_text, formatStamp(status.copyFrom)),
+            status.copyFrom
+                ?.let { stringResource(R.string.settings_sync_offline_text, formatStamp(it)) }
+                ?: stringResource(R.string.settings_sync_offline_text_undated),
         )
     }
     SettingsRow(

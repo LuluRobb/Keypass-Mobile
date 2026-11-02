@@ -37,12 +37,16 @@ internal data class SyncState(
 
 /**
  * The local files, all in one app private directory (excluded from backup,
- * SE-08): offline copy, candidate, temporary download and the state file.
+ * SE-08): offline copy, candidate, temporary download, the offline copy of a
+ * previous source and the state file.
  * Files are replaced atomically (write elsewhere, then rename).
  */
 internal class LocalStore(private val dir: File) {
     val offline = File(dir, "offline.kdbx")
     val candidate = File(dir, "candidate.kdbx")
+
+    /** The offline copy of the previous source until the new file opened (see SyncEngine.markSourceChanged). */
+    val previousOffline = File(dir, "offline-previous.kdbx")
     val download = File(dir, "download.tmp")
     private val stateFile = File(dir, "sync-state.properties")
     private val stateTemp = File(dir, "sync-state.properties.tmp")

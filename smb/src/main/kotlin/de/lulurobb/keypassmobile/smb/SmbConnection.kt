@@ -102,12 +102,18 @@ class SmbConnection internal constructor(
      * @throws SmbException [Reason.SHARE_NOT_FOUND], [Reason.FILE_NOT_FOUND] (also when
      *   [path] is a file), [Reason.ACCESS_DENIED], [Reason.UNREACHABLE] and others.
      */
-    fun listFolder(share: String, path: String): List<FolderItem> = smbCall {
+    fun listFolder(share: String, path: String): List<FolderItem> = listFolderWithCount(share, path).items
+
+    /**
+     * Like [listFolder], but also counts the files left out because they are no `.kdbx`
+     * files (browse screen: "andere Dateien sind ausgeblendet").
+     */
+    fun listFolderWithCount(share: String, path: String): FolderListing = smbCall {
         checkOpen()
         val entries = diskShare(share).list(normalizePath(path)).map {
             RawEntry(it.fileName, it.fileAttributes, it.endOfFile, it.lastWriteTime.toInstant())
         }
-        toFolderItems(entries)
+        toFolderListing(entries)
     }
 
     /**

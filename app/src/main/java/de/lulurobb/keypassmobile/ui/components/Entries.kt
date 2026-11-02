@@ -41,11 +41,14 @@ import java.time.LocalDateTime
 
 /** Which version of the database is open (SY-08). */
 sealed interface SyncStatus {
-    /** The current version from the share, loaded at [loadedAt]. */
-    data class Current(val loadedAt: LocalDateTime) : SyncStatus
+    /** The current version from the share, loaded at [loadedAt] (null: no confirmed sync, no date shown). */
+    data class Current(val loadedAt: LocalDateTime?) : SyncStatus
 
-    /** The offline copy is open; it is the version of [copyFrom]. */
-    data class OfflineCopy(val copyFrom: LocalDateTime, val reason: OfflineReason) : SyncStatus
+    /**
+     * The offline copy is open; it is the version of [copyFrom] (null: no date known). [reason] is null
+     * while a sync runs and nothing says why the copy is open: the screens show the syncing state.
+     */
+    data class OfflineCopy(val copyFrom: LocalDateTime?, val reason: OfflineReason?) : SyncStatus
 }
 
 /** Why the offline copy is open instead of the version from the share. */
@@ -58,6 +61,15 @@ enum class OfflineReason {
 
     /** The newer file from the share did not open with the master password (EN-06). */
     NewVersionRejected,
+
+    /** The server refused the stored login (user or password changed). */
+    LoginFailed,
+
+    /** The file is gone from the share (moved, renamed or deleted). */
+    FileNotFound,
+
+    /** The user may no longer read the share or file. */
+    NoAccess,
 }
 
 /** Sync state for the list chip and the settings. [syncing]: a check or download runs now. */
@@ -70,8 +82,12 @@ fun SyncChip(sync: SyncState, onClick: () -> Unit, modifier: Modifier = Modifier
     val offline = sync.status is SyncStatus.OfflineCopy
     val label = when {
         sync.syncing -> stringResource(R.string.sync_chip_syncing)
-        sync.status is SyncStatus.Current -> stringResource(R.string.sync_chip_current, formatStamp(sync.status.loadedAt))
-        sync.status is SyncStatus.OfflineCopy -> stringResource(R.string.sync_chip_offline, formatStamp(sync.status.copyFrom))
+        sync.status is SyncStatus.Current -> sync.status.loadedAt
+            ?.let { stringResource(R.string.sync_chip_current, formatStamp(it)) }
+            ?: stringResource(R.string.sync_chip_current_undated)
+        sync.status is SyncStatus.OfflineCopy -> sync.status.copyFrom
+            ?.let { stringResource(R.string.sync_chip_offline, formatStamp(it)) }
+            ?: stringResource(R.string.sync_chip_offline_undated)
         else -> ""
     }
     AssistChip(

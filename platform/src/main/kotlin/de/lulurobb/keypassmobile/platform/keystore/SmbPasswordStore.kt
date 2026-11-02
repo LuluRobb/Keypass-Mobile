@@ -1,6 +1,7 @@
 package de.lulurobb.keypassmobile.platform.keystore
 
 import android.security.keystore.StrongBoxUnavailableException
+import de.lulurobb.keypassmobile.platform.setup.SmbPasswords
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.CharBuffer
@@ -20,13 +21,13 @@ internal class SmbPasswordStore(
     private val file: File,
     private val strongBoxAvailable: Boolean,
     private val alias: String = KeySpecs.SMB_KEY_ALIAS,
-) {
+) : SmbPasswords {
     private val lock = Any()
 
-    fun hasStoredValue(): Boolean = file.isFile
+    override fun hasStoredValue(): Boolean = file.isFile
 
     /** Encrypts and stores [password]. [password] is not modified; the caller wipes it. */
-    fun save(password: CharArray) = synchronized(lock) {
+    override fun save(password: CharArray): Unit = synchronized(lock) {
         val plain = utf8(password)
         try {
             val (iv, ciphertext) = encrypt(plain)
@@ -45,7 +46,7 @@ internal class SmbPasswordStore(
      * Decrypts the stored password. The caller wipes the returned array after
      * use. Null when nothing is stored or the key is gone.
      */
-    fun load(): CharArray? = synchronized(lock) {
+    override fun load(): CharArray? = synchronized(lock) {
         val bytes = try {
             if (!file.isFile) return@synchronized null
             file.readBytes()
@@ -71,7 +72,7 @@ internal class SmbPasswordStore(
     }
 
     /** Deletes the stored password and its key. Never throws. */
-    fun clear() = synchronized(lock) {
+    override fun clear(): Unit = synchronized(lock) {
         file.delete()
         KeySpecs.deleteKeyQuietly(alias)
     }

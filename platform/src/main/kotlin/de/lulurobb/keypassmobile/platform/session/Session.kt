@@ -4,10 +4,12 @@ import de.lulurobb.keypassmobile.core.index.EntryIndex
 import de.lulurobb.keypassmobile.core.settings.PasswordExpiry
 import de.lulurobb.keypassmobile.core.sync.BackgroundSyncResult
 import de.lulurobb.keypassmobile.core.sync.CandidateRejection
+import de.lulurobb.keypassmobile.core.sync.CandidateState
 import de.lulurobb.keypassmobile.core.sync.KeySource
 import de.lulurobb.keypassmobile.core.sync.RefreshResult
 import de.lulurobb.keypassmobile.core.sync.RemoteSource
 import de.lulurobb.keypassmobile.core.sync.SyncEngine
+import de.lulurobb.keypassmobile.core.sync.SyncProblem
 import de.lulurobb.keypassmobile.core.sync.UnlockResult
 import de.lulurobb.keypassmobile.model.Vault
 import de.lulurobb.keypassmobile.platform.keystore.HashStore
@@ -15,20 +17,30 @@ import de.lulurobb.keypassmobile.platform.settings.SettingsRepository
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import de.lulurobb.keypassmobile.platform.smb.ServerNames
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.Closeable
+import java.io.IOException
 import java.time.Clock
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /** A [RemoteSource] for one sync call; closed afterwards (one SMB connection per stat and download). */
 interface RemoteHandle : RemoteSource, Closeable
@@ -41,6 +53,9 @@ fun interface RemoteFactory {
 /** Android side effects of state changes (foreground service, clipboard). */
 interface SessionEffects {
     fun onUnlocked()
+
+    /** The session is about to lock; still unlocked. Clear secrets outside the session (clipboard) here. */
+    fun onLocking() = Unit
 
     fun onLocked(reason: LockReason)
 }
@@ -73,6 +88,8 @@ internal class Session(
     private val hasher: (CharArray) -> ByteArray,
     private val indexer: (Vault) -> EntryIndex = ::EntryIndex,
     private val preload: () -> Unit = {},
+    private val journal: SwitchJournal = SwitchJournal.None,
+    private val clearSmbPassword: () -> Unit = {},
 ) {
     private val expiry = PasswordExpiry(clock)
 
@@ -99,12 +116,49 @@ internal class Session(
     private val mutableSync = MutableStateFlow(SyncInfo(engine.status(), syncing = false, serverChange = null))
     val sync: StateFlow<SyncInfo> = mutableSync.asStateFlow()
 
-    /** Last store of the hash for the fingerprint, for tests. */
+    private val reportCounter = AtomicLong()
+
+    /**
+     * One event per finished sync run (also the automatic one after an unlock,
+     * SY-04). Not replayed: only collectors that are active when the run ends
+     * get it. Use [lastSyncReport] when no event may be missed.
+     */
+    private val mutableReports = MutableSharedFlow<SyncReport>(extraBufferCapacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val syncReports: SharedFlow<SyncReport> = mutableReports.asSharedFlow()
+
+    private val mutableLastReport = MutableStateFlow<SyncReport?>(null)
+
+    /**
+     * The newest [SyncReport], null before the first run. Its [SyncReport.id]
+     * grows with every run, so the UI remembers the last id it showed and shows
+     * each report once, also when it starts collecting only after the run ended.
+     */
+    val lastSyncReport: StateFlow<SyncReport?> = mutableLastReport.asStateFlow()
+
+    /** Serializes stores and deletions of the hash for the fingerprint (EN-05 cleanup vs. a fresh store). */
+    private val fingerprintMutex = Mutex()
+
+    /** Last store of the hash for the fingerprint (true when stored), for tests. */
     @Volatile
-    internal var storeJob: Job? = null
+    internal var storeJob: Deferred<Boolean>? = null
         private set
 
+    /** A running store of the hash for the fingerprint, valid for [days] days when it succeeds. */
+    private class PendingStore(val days: Int, val result: Deferred<Boolean>)
+
+    /** Source changes running (or to be recovered); unlocks return Busy meanwhile. Guarded by [stateLock]. */
+    private var switching = 0
+
+    /** A source change was interrupted by a process death; see [recoverInterruptedSwitch]. Guarded by [stateLock]. */
+    private var recoveryPending = false
+
     init {
+        recoveryPending = try {
+            journal.read() != null
+        } catch (_: Exception) {
+            true
+        }
+        if (recoveryPending) switching = 1
         publishSync()
     }
 
@@ -112,28 +166,78 @@ internal class Session(
 
     /**
      * What the unlock screen offers first. When the master password is due
-     * (EN-05) the stored value is deleted here.
+     * (EN-05) the stored value is deleted here ([expireFingerprint]), before
+     * the answer; the reason [PasswordRequiredReason.DUE] stays until the next
+     * typed password.
      */
-    fun unlockOffer(): UnlockOffer {
+    suspend fun unlockOffer(): UnlockOffer {
+        expireFingerprint()
         val reason = fingerprintBlocker() ?: return UnlockOffer.Fingerprint
         return UnlockOffer.Password(reason)
     }
 
-    /** True when the fingerprint can unlock now ("Doch mit Fingerabdruck"). */
+    /** True when the fingerprint can unlock now ("Doch mit Fingerabdruck"). Free of side effects. */
     fun isFingerprintUsable(): Boolean = fingerprintBlocker() == null
 
     /**
-     * Null when the fingerprint path may be tried, else why not. Deletes the
-     * stored value when the password is due.
+     * Null when the fingerprint path may be tried, else why not. Free of side
+     * effects: the stored value of a due password is deleted by [expireFingerprint].
      */
     internal fun fingerprintBlocker(): PasswordRequiredReason? {
         val s = settings.settings.value
-        if (!s.fingerprintEnabled || !hashStore.hasStoredValue()) return PasswordRequiredReason.NOT_SET_UP
-        if (expiry.isDue(s.lastPasswordEntry, s.intervalAtEntry, s.passwordInterval)) {
-            scope.launch(io) { hashStore.clear() }
-            return PasswordRequiredReason.DUE
+        if (!s.fingerprintEnabled) return PasswordRequiredReason.NOT_SET_UP
+        if (!hashStore.hasStoredValue()) {
+            // After the cleanup of a due password the reason stays visible until the next password entry.
+            return if (s.fingerprintExpired) PasswordRequiredReason.DUE else PasswordRequiredReason.NOT_SET_UP
         }
-        return null
+        val due = expiry.isDue(s.lastPasswordEntry, s.intervalAtEntry, s.passwordInterval)
+        return if (due) PasswordRequiredReason.DUE else null
+    }
+
+    /**
+     * EN-05: deletes the stored value when the master password is due. Called
+     * by [unlockOffer] and before each fingerprint unlock, the places where
+     * the stored value would otherwise be offered. Returns true when it deletes.
+     * Runs under the same lock as the store, and decides again inside it, so it
+     * never deletes a hash that a typed password has just stored.
+     */
+    internal suspend fun expireFingerprint(): Boolean = scope.async {
+        withContext(io) {
+            fingerprintMutex.withLock {
+                val entry = settings.settings.value.lastPasswordEntry
+                if (hashStore.hasStoredValue() && fingerprintBlocker() == PasswordRequiredReason.DUE) {
+                    hashStore.clear()
+                    markExpired(entry)
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }.await()
+
+    /**
+     * Deletes the stored value, serialized with every store. [expired]: it is
+     * deleted because the password is due, so the unlock screen keeps reporting
+     * [PasswordRequiredReason.DUE] until the next typed password.
+     */
+    internal suspend fun clearStoredHash(expired: Boolean = false) {
+        withContext(io) {
+            fingerprintMutex.withLock {
+                val entry = settings.settings.value.lastPasswordEntry
+                hashStore.clear()
+                if (expired) markExpired(entry)
+            }
+        }
+    }
+
+    /**
+     * Sets the expired notice, unless a typed password renewed the entry time since
+     * [entry] was read (that write is not under [fingerprintMutex]): the notice must
+     * never outlive the password entry that ends it.
+     */
+    private fun markExpired(entry: Instant?) {
+        settings.update { if (it.lastPasswordEntry == entry) it.copy(fingerprintExpired = true) else it }
     }
 
     /**
@@ -141,6 +245,13 @@ internal class Session(
      * [enableFingerprint] non-null sets the fingerprint switch first (setup
      * step 3). With the fingerprint on, the hash is stored with a new key that
      * expires after the current interval (EN-05), and the entry time is recorded.
+     *
+     * Returns only after the store of the hash finished, so the outcome tells
+     * the truth about the fingerprint ([UnlockOutcome.Unlocked.fingerprintStoreFailed]).
+     * The outcome is a hint for messages; [state] is the source of truth for
+     * navigation: the session may already be locked again when it arrives
+     * (then the outcome is [UnlockOutcome.Aborted] and [SessionState.Locked]
+     * says why).
      */
     suspend fun unlockWithPassword(password: CharArray, enableFingerprint: Boolean? = null): UnlockOutcome {
         val gen = beginUnlock()
@@ -151,22 +262,17 @@ internal class Session(
         return scope.async {
             val hash = try {
                 withContext(io) { hasher(password) }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 failUnlock(gen, null)
                 throw e
             } finally {
                 password.fill('\u0000')
             }
-            val result = withContext(io) { engine.unlock(hash, KeySource.TYPED_PASSWORD) }
-            when (result) {
-                is UnlockResult.Opened -> {
-                    val renewedDays = afterPasswordEntry(hash, enableFingerprint)
-                    finishOpened(gen, result, hash, KeySource.TYPED_PASSWORD, renewedDays)
-                }
-                is UnlockResult.WrongKey -> failUnlock(gen, hash, UnlockOutcome.WrongPassword)
-                UnlockResult.NoDatabase -> failUnlock(gen, hash, UnlockOutcome.NoDatabase)
-                UnlockResult.Corrupt -> failUnlock(gen, hash, UnlockOutcome.Corrupt)
-            }
+            attemptUnlock(
+                gen, hash, KeySource.TYPED_PASSWORD,
+                afterOpen = { afterPasswordEntry(hash, enableFingerprint) },
+                onWrongKey = { UnlockOutcome.WrongPassword },
+            )
         }.await()
     }
 
@@ -182,22 +288,57 @@ internal class Session(
             return busyOutcome()
         }
         return scope.async {
-            val result = withContext(io) { engine.unlock(hash, KeySource.FINGERPRINT) }
-            when (result) {
-                is UnlockResult.Opened -> finishOpened(gen, result, hash, KeySource.FINGERPRINT, renewedDays = null)
-                is UnlockResult.WrongKey -> {
-                    withContext(io) { hashStore.clear() }
-                    failUnlock(gen, hash, UnlockOutcome.PasswordRequired(PasswordRequiredReason.STORED_VALUE_REJECTED))
+            attemptUnlock(
+                gen, hash, KeySource.FINGERPRINT,
+                afterOpen = { null },
+                onWrongKey = {
+                    clearStoredHash()
+                    UnlockOutcome.PasswordRequired(PasswordRequiredReason.STORED_VALUE_REJECTED)
+                },
+            )
+        }.await()
+    }
+
+    /**
+     * Opens the local file with [hash] and publishes the result. Whatever fails
+     * before the session owns vault and hash ([finishOpened] publishing them),
+     * the vault is closed, the hash wiped and the state is no longer Unlocking.
+     */
+    private suspend fun attemptUnlock(
+        gen: Int,
+        hash: ByteArray,
+        keySource: KeySource,
+        afterOpen: suspend () -> PendingStore?,
+        onWrongKey: suspend () -> UnlockOutcome,
+    ): UnlockOutcome {
+        var vault: Vault? = null
+        try {
+            return when (val result = withContext(io) { engine.unlock(hash, keySource) }) {
+                is UnlockResult.Opened -> {
+                    vault = result.vault
+                    val pendingStore = afterOpen()
+                    finishOpened(gen, result, hash, keySource, pendingStore)
                 }
+                is UnlockResult.WrongKey -> failUnlock(gen, hash, onWrongKey())
                 UnlockResult.NoDatabase -> failUnlock(gen, hash, UnlockOutcome.NoDatabase)
                 UnlockResult.Corrupt -> failUnlock(gen, hash, UnlockOutcome.Corrupt)
             }
-        }.await()
+        } catch (e: Throwable) {
+            if (!synchronized(stateLock) { this.hash === hash }) {
+                try {
+                    vault?.close()
+                } catch (_: Exception) {
+                    // Closing only drops references.
+                }
+                failUnlock(gen, hash)
+            }
+            throw e
+        }
     }
 
     /** Switches to [SessionState.Unlocking]; null when already unlocking or unlocked. */
     private fun beginUnlock(): Int? = synchronized(stateLock) {
-        if (mutableState.value !is SessionState.Locked) return null
+        if (mutableState.value !is SessionState.Locked || switching > 0) return null
         generation++
         mutableState.value = SessionState.Unlocking
         generation
@@ -218,32 +359,41 @@ internal class Session(
         return outcome
     }
 
-    /** Records the password entry and stores the hash for the fingerprint. Returns the days it is valid for, or null. */
-    private fun afterPasswordEntry(hash: ByteArray, enableFingerprint: Boolean?): Int? {
+    /**
+     * Records the password entry and starts storing the hash for the
+     * fingerprint, in parallel to the rest of the unlock. Null when the
+     * fingerprint is off. [finishOpened] waits for the result.
+     */
+    private suspend fun afterPasswordEntry(hash: ByteArray, enableFingerprint: Boolean?): PendingStore? {
         val now = clock.instant()
         val s = settings.update {
             it.copy(
                 fingerprintEnabled = enableFingerprint ?: it.fingerprintEnabled,
                 lastPasswordEntry = now,
                 intervalAtEntry = it.passwordInterval,
+                fingerprintExpired = false,
             )
         }
         if (!s.fingerprintEnabled) {
-            if (enableFingerprint == false) scope.launch(io) { hashStore.clear() }
+            if (enableFingerprint == false) clearStoredHash()
             return null
         }
         val copy = hash.copyOf()
         val validityEnd = expiry.keyValidityEnd(now, s.passwordInterval)
-        storeJob = scope.launch(io) {
+        val job = scope.async(io) {
             try {
-                hashStore.store(copy, validityEnd)
+                fingerprintMutex.withLock { hashStore.store(copy, validityEnd) }
+                true
             } catch (_: Exception) {
-                // Fingerprint stays unavailable until the next password entry; unlockOffer() shows it.
+                // Fingerprint stays unavailable until the next password entry; unlockOffer() shows it,
+                // and the outcome says so (fingerprintStoreFailed).
+                false
             } finally {
                 copy.fill(0)
             }
         }
-        return s.passwordInterval.days
+        storeJob = job
+        return PendingStore(s.passwordInterval.days, job)
     }
 
     private suspend fun finishOpened(
@@ -251,7 +401,7 @@ internal class Session(
         result: UnlockResult.Opened,
         hash: ByteArray,
         keySource: KeySource,
-        renewedDays: Int?,
+        fingerprintStore: PendingStore?,
     ): UnlockOutcome {
         val index = try {
             withContext(io) { indexer(result.vault) }
@@ -286,6 +436,8 @@ internal class Session(
             return UnlockOutcome.Aborted
         }
         effects.onUnlocked()
+        // The effects may lock right away (foreground service refused): then nothing more starts.
+        if (!isCurrent(gen)) return UnlockOutcome.Aborted
         scope.launch(io) {
             try {
                 preload()
@@ -295,9 +447,21 @@ internal class Session(
         }
         publishSync()
         // SY-04: check the share in the background; the unlock never waits for it.
-        scope.launch { syncNow() }
-        return UnlockOutcome.Unlocked(result.newVersionOpened, result.candidateRejected, renewedDays)
+        scope.launch { syncNow(SyncTrigger.AFTER_UNLOCK) }
+        // The store ran in parallel to the indexing above; the outcome only claims what really happened.
+        val renewedDays = fingerprintStore?.takeIf { it.result.await() }?.days
+        if (!isCurrent(gen)) return UnlockOutcome.Aborted
+        return UnlockOutcome.Unlocked(
+            newVersionOpened = result.newVersionOpened,
+            candidateRejected = result.candidateRejected,
+            fingerprintRenewedForDays = renewedDays,
+            fingerprintStoreFailed = fingerprintStore != null && renewedDays == null,
+        )
     }
+
+    /** True while the unlock of [gen] is published and not locked again. */
+    private fun isCurrent(gen: Int): Boolean =
+        synchronized(stateLock) { gen == generation && mutableState.value is SessionState.Unlocked }
 
     // ---- lock and idle ----
 
@@ -307,6 +471,14 @@ internal class Session(
      * foreground service. Safe from any thread; no-op when already locked.
      */
     fun lock(reason: LockReason) {
+        // Secrets outside the session (clipboard) go first, before the state says Locked.
+        if (mutableState.value !is SessionState.Locked) {
+            try {
+                effects.onLocking()
+            } catch (_: Exception) {
+                // The lock must happen whatever the effects do.
+            }
+        }
         val vault: Vault?
         synchronized(stateLock) {
             val current = mutableState.value
@@ -324,7 +496,11 @@ internal class Session(
         } catch (_: Exception) {
             // Closing only drops references.
         }
-        effects.onLocked(reason)
+        try {
+            effects.onLocked(reason)
+        } catch (_: Exception) {
+            // The state is Locked already; the rest must still run.
+        }
         publishSync()
     }
 
@@ -376,48 +552,59 @@ internal class Session(
      * "Jetzt synchronisieren" (SY-07): unlocked like SY-04 (check, download,
      * open with the key in memory, show the new version), locked like SY-06
      * (download as candidate). Also used after unlock and by the worker.
-     * Runs are serialized.
+     * Runs are serialized. Every finished run is also published in [syncReports]
+     * with [trigger].
      */
-    suspend fun syncNow(): SyncResult = runSync { remotes.open() }
+    suspend fun syncNow(trigger: SyncTrigger = SyncTrigger.REQUESTED): SyncResult = runSync(trigger) { remotes.open() }
 
     /** Like [syncNow], but with [remote] instead of the configured source (setup, DS-02). Does not close it. */
-    internal suspend fun syncWith(remote: RemoteSource): SyncResult = runSync {
+    internal suspend fun syncWith(remote: RemoteSource): SyncResult = runSync(SyncTrigger.SETUP) {
         object : RemoteHandle, RemoteSource by remote {
             override fun close() = Unit
         }
     }
 
-    private suspend fun runSync(remote: () -> RemoteHandle?): SyncResult = scope.async {
-        syncMutex.withLock {
-            syncRunning.incrementAndGet()
-            publishSync()
-            try {
-                val (gen, hashCopy) = synchronized(stateLock) {
-                    if (state.value is SessionState.Unlocked) generation to hash?.copyOf() else generation to null
-                }
-                if (hashCopy != null) refresh(gen, hashCopy, remote) else backgroundSync(remote)
-            } finally {
-                syncRunning.decrementAndGet()
-                publishSync()
-            }
-        }
+    private suspend fun runSync(trigger: SyncTrigger, remote: () -> RemoteHandle?): SyncResult = scope.async {
+        syncMutex.withLock { syncLocked(trigger, remote = remote) }
     }.await()
+
+    /** One sync run and its report. The caller holds [syncMutex]. */
+    private suspend fun syncLocked(trigger: SyncTrigger, report: Boolean = true, remote: () -> RemoteHandle?): SyncResult {
+        syncRunning.incrementAndGet()
+        publishSync()
+        val result = try {
+            val (gen, hashCopy) = synchronized(stateLock) {
+                if (state.value is SessionState.Unlocked) generation to hash?.copyOf() else generation to null
+            }
+            if (hashCopy != null) refresh(gen, hashCopy, remote) else backgroundSync(remote)
+        } finally {
+            syncRunning.decrementAndGet()
+            publishSync()
+        }
+        if (report) emitReport(trigger, result)
+        return result
+    }
+
+    private fun emitReport(trigger: SyncTrigger, result: SyncResult) {
+        val report = SyncReport(reportCounter.incrementAndGet(), trigger, result)
+        mutableLastReport.value = report
+        mutableReports.tryEmit(report)
+    }
 
     /** SY-04 with a copy of the hash, so a lock during the download cannot wipe it mid-use. */
     private suspend fun refresh(gen: Int, hashCopy: ByteArray, remote: () -> RemoteHandle?): SyncResult {
+        var index: EntryIndex? = null
         val result = try {
             withContext(io) {
-                remote()?.use { engine.refreshAfterUnlock(it, hashCopy) }
+                // The index is built before the new file replaces the offline copy: if it fails, nothing changed.
+                remote()?.use { engine.refreshAfterUnlock(it, hashCopy) { vault -> index = indexer(vault) } }
             }
         } finally {
             hashCopy.fill(0)
         } ?: return SyncResult.NotConfigured
         return when (result) {
             RefreshResult.UpToDate -> SyncResult.UpToDate
-            is RefreshResult.Updated -> {
-                replaceVault(gen, result.vault)
-                SyncResult.Updated
-            }
+            is RefreshResult.Updated -> replaceVault(gen, result.vault, index!!)
             RefreshResult.NewVersionRejected -> {
                 synchronized(stateLock) {
                     val current = mutableState.value
@@ -440,14 +627,15 @@ internal class Session(
         }
     }
 
-    /** Shows the newer [vault] and closes the previous one; closes [vault] if locked meanwhile. */
-    private suspend fun replaceVault(gen: Int, vault: Vault) {
-        val index = try {
-            withContext(io) { indexer(vault) }
-        } catch (_: Exception) {
-            vault.close()
-            return
-        }
+    /**
+     * Shows the newer [vault] (with its [index], built before the engine stored
+     * the file; a failing indexer makes the refresh fail as [SyncProblem.INVALID_FILE]
+     * with the old copy untouched) and closes the previous one. The newer file is
+     * the offline copy already. Reports [SyncResult.Updated] only when it is
+     * shown; when the session was locked meanwhile [vault] is closed and the
+     * result is [SyncResult.CandidateReady] (the next unlock opens it).
+     */
+    private fun replaceVault(gen: Int, vault: Vault, index: EntryIndex): SyncResult {
         val previous = synchronized(stateLock) {
             val current = mutableState.value
             if (gen != generation || current !is SessionState.Unlocked) {
@@ -457,7 +645,12 @@ internal class Session(
                 current.vault
             }
         }
-        if (previous == null) vault.close() else previous.close()
+        if (previous == null) {
+            vault.close()
+            return SyncResult.CandidateReady
+        }
+        previous.close()
+        return SyncResult.Updated
     }
 
     /** Accepts the server GUID a sync saw instead of the remembered one (DS-04), then syncs. */
@@ -469,6 +662,213 @@ internal class Session(
         }
         publishSync()
         return syncNow()
+    }
+
+    /**
+     * Setup and source change as one unit (DS-02): the test download as sync run
+     * (reported as [SyncTrigger.SETUP] only when the change succeeds), setting the
+     * old offline copy aside ([SyncEngine.markSourceChanged], SY-05), then
+     * [SourceSwitch.stage] (the new SMB password) and [SourceSwitch.commit] (the
+     * new source) right after each other, so the password never belongs to another
+     * source for longer than that. It runs in the session's scope under
+     * [syncMutex], so it finishes even if the caller is cancelled, no other sync
+     * (worker, refresh after unlock) reads the old source in between, and no unlock
+     * can start meanwhile (they return [UnlockOutcome.Busy]).
+     *
+     * On any failure the previous password, offline copy and source are back and
+     * the foreign candidate is deleted. One case cannot be taken back: when the new
+     * file opened with the key in memory (unlocked, same master password) the engine
+     * has already replaced the offline copy and the vault shows the new file. Then
+     * the offline copy is deleted too and the session is locked with
+     * [LockReason.SourceChanged], so the old source never shows the new file; the
+     * next sync downloads the old file again.
+     *
+     * Every step is recorded in the [journal] first. If the process dies in the
+     * middle, [recoverInterruptedSwitch] undoes the rest at the next start.
+     *
+     * When the old copy was set aside, an open vault (or an unlock in progress) is
+     * the old file; autofill would keep serving it, so the session locks with
+     * [LockReason.SourceChanged] and the next unlock opens the new file.
+     *
+     * Lock order: [syncMutex], then the engine's remote and file locks, then
+     * [stateLock] (innermost, never held across a call). [lock] takes none of the
+     * first three.
+     */
+    internal fun startSwitch(change: SourceSwitch): Deferred<SourceSwitchResult> {
+        // Set before this returns, so an unlock that starts right after already sees it.
+        synchronized(stateLock) { switching++ }
+        return scope.async {
+            try {
+                syncMutex.withLock { runSwitch(change) }
+            } finally {
+                synchronized(stateLock) { switching-- }
+            }
+        }
+    }
+
+    internal suspend fun switchSource(change: SourceSwitch): SourceSwitchResult = startSwitch(change).await()
+
+    private suspend fun runSwitch(change: SourceSwitch): SourceSwitchResult {
+        var record = SwitchRecord(change.target, change.differs, setAside = false, offlineReplaced = false, passwordTouched = false)
+        var journaled = false
+        var stageCalled = false
+        var candidateAdded = false
+        var saved = false
+        try {
+            try {
+                withContext(io) { journal.write(record) }
+                journaled = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return SourceSwitchResult.Failed(SyncProblem.LOCAL_STORAGE)
+            }
+            val handle = object : RemoteHandle, RemoteSource by change.remote {
+                override fun close() = Unit
+            }
+            val result = syncLocked(SyncTrigger.SETUP, report = false) { handle }
+            when (result) {
+                is SyncResult.Failed -> return SourceSwitchResult.Failed(result.problem)
+                SyncResult.NotConfigured -> return SourceSwitchResult.Failed(SyncProblem.REMOTE_ERROR)
+                else -> Unit
+            }
+            candidateAdded = change.differs
+            var setAside = false
+            if (change.differs) {
+                try {
+                    setAside = withContext(io) { engine.markSourceChanged() }
+                } catch (_: IOException) {
+                    return SourceSwitchResult.Failed(SyncProblem.LOCAL_STORAGE)
+                }
+                // No candidate and an offline copy: the new file replaced it directly (it opened with the key in memory).
+                val status = engine.status()
+                val replaced = !setAside && result != SyncResult.UpToDate &&
+                    status.candidate == CandidateState.NONE && status.hasLocalDatabase
+                record = record.copy(setAside = setAside, offlineReplaced = replaced)
+                withContext(io) { journalQuietly(record) }
+            }
+            try {
+                record = record.copy(passwordTouched = true)
+                withContext(io) { journal.write(record) }
+                stageCalled = true
+                withContext(io) { change.stage() }
+                withContext(io) { change.commit() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return SourceSwitchResult.Failed(SyncProblem.LOCAL_STORAGE)
+            }
+            saved = true
+            if (setAside && state.value !is SessionState.Locked) lock(LockReason.SourceChanged)
+            emitReport(SyncTrigger.SETUP, result)
+            return SourceSwitchResult.Saved(result)
+        } finally {
+            withContext(NonCancellable + io) {
+                try {
+                    if (!saved && journaled) rollbackSwitch(record, change, stageCalled, candidateAdded)
+                } finally {
+                    try {
+                        change.finish()
+                    } catch (_: Exception) {
+                        // Nothing more to do.
+                    }
+                    journalQuietly(null)
+                }
+            }
+            publishSync()
+        }
+    }
+
+    private fun journalQuietly(record: SwitchRecord?) {
+        try {
+            journal.write(record)
+        } catch (_: Exception) {
+            // Best effort: the steps that matter were written before.
+        }
+    }
+
+    /** Takes back a failed change; every step on its own, so one failing step never stops the others. */
+    private fun rollbackSwitch(record: SwitchRecord, change: SourceSwitch, stageCalled: Boolean, candidateAdded: Boolean) {
+        undoEngineSteps(record, candidateAdded)
+        if (record.offlineReplaced && state.value !is SessionState.Locked) lock(LockReason.SourceChanged)
+        if (stageCalled) {
+            try {
+                change.rollback()
+            } catch (_: Exception) {
+                // Best effort.
+            }
+        }
+    }
+
+    private fun undoEngineSteps(record: SwitchRecord, candidateAdded: Boolean) {
+        if (record.setAside) {
+            try {
+                engine.undoSourceChanged()
+            } catch (_: Exception) {
+                // The copy stays set aside; the next sync downloads the file again.
+            }
+        }
+        if (candidateAdded) {
+            try {
+                engine.discardCandidate()
+            } catch (_: Exception) {
+                // Best effort.
+            }
+        }
+        if (record.offlineReplaced) {
+            try {
+                engine.reset()
+            } catch (_: Exception) {
+                // Best effort.
+            }
+        }
+    }
+
+    /**
+     * At the start of the process: if a source change was running when the process
+     * died, finish undoing it (old copy back, foreign candidate deleted, and the
+     * stored SMB password cleared when it may belong to the new server, so the user
+     * is asked instead of a wrong password being sent). A change that had saved its
+     * source already is left as it is. Unlocks wait ([UnlockOutcome.Busy]) until
+     * this is done. No-op without a journal record.
+     */
+    internal suspend fun recoverInterruptedSwitch() {
+        if (!recoveryPending) return
+        scope.async {
+            try {
+                syncMutex.withLock {
+                    withContext(NonCancellable + io) {
+                        val record = try {
+                            journal.read()
+                        } catch (_: Exception) {
+                            null
+                        }
+                        if (record != null) {
+                            val committed = record.target != null && record.target == settings.settings.value.source
+                            if (!committed) {
+                                undoEngineSteps(record, candidateAdded = record.differs)
+                                if (record.passwordTouched) {
+                                    try {
+                                        clearSmbPassword()
+                                    } catch (_: Exception) {
+                                        // Best effort.
+                                    }
+                                }
+                            }
+                            journalQuietly(null)
+                        }
+                    }
+                }
+            } finally {
+                synchronized(stateLock) {
+                    if (recoveryPending) {
+                        recoveryPending = false
+                        switching--
+                    }
+                }
+            }
+        }.await()
+        publishSync()
     }
 
     /** Recomputes [sync] from the engine and the settings. Cheap; any thread. */
@@ -501,8 +901,8 @@ internal class Session(
      */
     suspend fun setFingerprintEnabled(enabled: Boolean): FingerprintSetupResult = scope.async {
         if (!enabled) {
-            settings.update { it.copy(fingerprintEnabled = false) }
-            withContext(io) { hashStore.clear() }
+            settings.update { it.copy(fingerprintEnabled = false, fingerprintExpired = false) }
+            clearStoredHash()
             return@async FingerprintSetupResult.DISABLED
         }
         val s = settings.update { it.copy(fingerprintEnabled = true) }
@@ -513,7 +913,8 @@ internal class Session(
         }
         val copy = synchronized(stateLock) { hash?.copyOf() } ?: return@async FingerprintSetupResult.ON_NEXT_PASSWORD
         try {
-            withContext(io) { hashStore.store(copy, expiry.dueAt(entry, atEntry, s.passwordInterval)) }
+            withContext(io) { fingerprintMutex.withLock { hashStore.store(copy, expiry.dueAt(entry, atEntry, s.passwordInterval)) } }
+            settings.update { it.copy(fingerprintExpired = false) }
             FingerprintSetupResult.STORED
         } catch (_: Exception) {
             FingerprintSetupResult.FAILED
