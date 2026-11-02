@@ -29,7 +29,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
@@ -318,21 +317,6 @@ private fun BrowseList(
             }
             if (content.files.isEmpty() && content.folders.isEmpty()) {
                 item { EmptyLine(stringResource(R.string.browse_empty)) }
-            }
-            item {
-                val note = buildString {
-                    append(stringResource(R.string.browse_only_kdbx))
-                    if (content.hiddenCount > 0) {
-                        append(' ')
-                        append(pluralStringResource(R.plurals.browse_hidden_files, content.hiddenCount, content.hiddenCount))
-                    }
-                }
-                Text(
-                    note,
-                    modifier = Modifier.padding(horizontal = ScreenPadding, vertical = 12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
         }
     }

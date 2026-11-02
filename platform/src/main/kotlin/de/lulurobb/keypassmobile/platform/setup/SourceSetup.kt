@@ -44,11 +44,11 @@ import java.util.UUID
  * the candidate and the next typed-password unlock opens it. Unlocked (change
  * from the settings), it is opened right away with the key in memory if it
  * fits, otherwise kept as candidate for an unlock with its own master password.
- * The SMB password of the current source can be reused ([connectWithStoredPassword]).
+ * The SMB password is always typed: a source change never reuses the stored one (it is
+ * only for the automatic sync).
  *
  * The connection outlives a cancelled [chooseFile] until its source change is
- * finished: [close] then waits for it, and [connect] and [connectWithStoredPassword]
- * wait before they replace the connection.
+ * finished: [close] then waits for it, and [connect] waits before it replaces the connection.
  */
 class SourceSetup internal constructor(
     private val connector: SetupConnector,
@@ -90,39 +90,6 @@ class SourceSetup internal constructor(
         mutex.withLock {
             awaitSwitch()
             withContext(io) { connectLocked(address, password, acceptServerGuid) }
-        }
-
-    /**
-     * True when [connectWithStoredPassword] can be used for [address]: a SMB
-     * password is stored and host, port, user and domain are those of the
-     * current source (source change from the settings). Otherwise the password field
-     * must be shown.
-     */
-    fun canUseStoredPassword(address: ServerAddress): Boolean =
-        storedPasswordApplies(settings.settings.value.source, address) && smbPasswords.hasStoredValue()
-
-    /**
-     * Like [connect], but with the SMB password stored for the current source
-     * (DS-03), so a source change does not ask for it again. Only when
-     * [canUseStoredPassword]; otherwise (or when the stored password cannot be
-     * read) the result is [ConnectError.PasswordRequired] and nothing was sent
-     * to the server. A stored password the server rejects yields
-     * [ConnectError.LoginFailed], then the UI asks for the password.
-     */
-    suspend fun connectWithStoredPassword(address: ServerAddress, acceptServerGuid: UUID? = null): ConnectResult =
-        mutex.withLock {
-            awaitSwitch()
-            withContext(io) {
-                if (!storedPasswordApplies(settings.settings.value.source, address)) {
-                    return@withContext ConnectResult.Failed(ConnectError.PasswordRequired)
-                }
-                val stored = smbPasswords.load() ?: return@withContext ConnectResult.Failed(ConnectError.PasswordRequired)
-                try {
-                    connectLocked(address, stored, acceptServerGuid)
-                } finally {
-                    stored.fill('\u0000')
-                }
-            }
         }
 
     /** Caller holds [mutex] and runs on [io]. */
@@ -395,18 +362,6 @@ class SourceSetup internal constructor(
             }
             return FolderResult.Listed(folders, files, listing.otherFileCount)
         }
-
-        /**
-         * The stored SMB password belongs to the account (host, port, user, domain) of
-         * the current source. Another port is another service: no password goes there
-         * without the user typing it (DS-04).
-         */
-        fun storedPasswordApplies(source: SourceConfig?, address: ServerAddress): Boolean =
-            source != null &&
-                source.host.equals(address.host.trim(), ignoreCase = true) &&
-                source.port == address.port &&
-                source.user.equals(address.user.trim(), ignoreCase = true) &&
-                source.domain.equals(address.domain.trim(), ignoreCase = true)
 
         /** The remembered GUID applies only to the host and port of the current source. */
         fun rememberedGuidFor(current: KpmSettings, server: SmbServer): UUID? {

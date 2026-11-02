@@ -172,22 +172,27 @@ private fun TargetHeader(state: PickerState, onClose: () -> Unit) {
                     )
                 }
                 is FillTarget.App -> {
-                    // The package name is what the user is shown (AF-07); monospace keeps
-                    // look-alike characters apart.
-                    Text(
-                        breakAfter(target.packageName, "."),
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.SemiBold,
-                        ),
-                        color = scheme.onSurface,
-                    )
-                    Text(
-                        target.appLabel?.let { stringResource(R.string.picker_app_sub, it) }
-                            ?: stringResource(R.string.picker_app_sub_unknown),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = scheme.onSurfaceVariant,
-                    )
+                    // The visible name of the app first, as the host for a web page; the package name
+                    // stays below as the hint against a freely chosen name (AF-07). Without a readable
+                    // name the package name is the title, in monospace to keep look-alike characters apart.
+                    val label = target.appLabel
+                    if (label != null) {
+                        Text(label, style = MaterialTheme.typography.titleLarge, color = scheme.onSurface)
+                        Text(
+                            breakAfter(target.packageName, "."),
+                            style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                            color = scheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            breakAfter(target.packageName, "."),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.SemiBold,
+                            ),
+                            color = scheme.onSurface,
+                        )
+                    }
                 }
             }
         }

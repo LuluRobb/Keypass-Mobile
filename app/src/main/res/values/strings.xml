@@ -25,11 +25,9 @@
     <string name="setup_server_heading">Mit welchem Server verbinden?</string>
     <string name="setup_server_lead">KeyPass Mobile liest deine KDBX-Datei von einer SMB-Freigabe und behält eine verschlüsselte Kopie für unterwegs. Die Datei wählst du im nächsten Schritt aus.</string>
     <string name="setup_field_host">Host</string>
-    <string name="setup_field_host_helper">Am besten die IP-Adresse, dann greift das kurze Timeout.</string>
     <string name="setup_field_user">Benutzer</string>
     <string name="setup_field_user_helper">Am besten ein eigener Benutzer, der nur den Ordner mit der Datenbank lesen darf.</string>
     <string name="setup_field_password">Passwort</string>
-    <string name="setup_field_password_keep">Leer lassen, um das gespeicherte Passwort zu verwenden.</string>
     <string name="setup_advanced">Erweitert: Port und Domäne</string>
     <string name="setup_field_port">Port</string>
     <string name="setup_field_domain">Domäne (optional)</string>
@@ -60,7 +58,6 @@
     <string name="browse_shares_not_listed">Der Server listet seine Freigaben nicht auf. Gib den Namen der Freigabe von Hand ein.</string>
     <string name="browse_share_manual_button">Freigabe eingeben</string>
     <string name="browse_no_shares">Der Server zeigt keine Freigaben. Gib den Namen der Freigabe von Hand ein.</string>
-    <string name="browse_only_kdbx">Angezeigt werden nur Ordner und KDBX-Dateien.</string>
     <string name="browse_empty">Hier liegen keine KDBX-Dateien.</string>
     <string name="browse_loading">Lade Ordner …</string>
     <string name="browse_folder_error">Der Ordner ließ sich nicht öffnen.</string>
@@ -70,10 +67,6 @@
     <string name="browse_save">Speichern</string>
     <string name="browse_file_meta">%1$s · %2$s</string>
     <string name="browse_selected">Ausgewählt</string>
-    <plurals name="browse_hidden_files">
-        <item quantity="one">%d andere Datei ist ausgeblendet.</item>
-        <item quantity="other">%d andere Dateien sind ausgeblendet.</item>
-    </plurals>
 
     <!-- Dialog: enter share name by hand (DS-02 fallback) -->
     <string name="share_dialog_title">Freigabe öffnen</string>
@@ -88,7 +81,7 @@
     <string name="unlock_first_run_fingerprint">Danach mit Fingerabdruck entsperren</string>
     <string name="unlock_with_fingerprint">Mit Fingerabdruck entsperren</string>
     <string name="unlock_enter_password">Master-Passwort eingeben</string>
-    <string name="unlock_fingerprint_instead">Doch mit Fingerabdruck</string>
+    <string name="unlock_fingerprint_instead">Biometrische Daten nutzen</string>
     <string name="unlock_password_field">Master-Passwort</string>
     <string name="unlock_button">Entsperren</string>
     <string name="unlock_error_empty">Bitte das Master-Passwort eingeben.</string>
@@ -125,7 +118,6 @@
     <string name="system_notifications_button">Benachrichtigungen erlauben</string>
     <string name="system_notifications_done">Benachrichtigungen sind erlaubt.</string>
     <string name="system_finish">Fertig</string>
-    <string name="system_later_hint">Was noch fehlt, lässt sich später in den Einstellungen nachholen.</string>
 
     <!-- Entry list -->
     <string name="sync_chip_current">Aktuell · vom Share, %1$s</string>
@@ -156,13 +148,11 @@
     <string name="detail_username">Benutzername</string>
     <string name="detail_password">Passwort</string>
     <string name="detail_password_dots">••••••••••••</string>
-    <string name="detail_password_never_shown">wird nie angezeigt</string>
     <string name="detail_notes">Notizen</string>
     <string name="detail_group">Gruppe</string>
     <string name="detail_http_hint">Diese Seite läuft über HTTP. Dort füllt der Browser nicht automatisch aus, also hier kopieren und dort einfügen.</string>
     <string name="detail_copy_username">Benutzername kopieren</string>
     <string name="detail_copy_password">Passwort kopieren</string>
-    <string name="detail_clipboard_note">Kopiertes wird nach %1$d Sekunden gelöscht.</string>
     <string name="detail_no_username">Kein Benutzername eingetragen</string>
 
     <!-- Settings (UI-03) -->
@@ -183,7 +173,6 @@
     <string name="settings_sync_login_failed">Anmeldung fehlgeschlagen</string>
     <string name="settings_sync_file_not_found">Datei nicht gefunden</string>
     <string name="settings_sync_no_access">Kein Zugriff</string>
-    <string name="settings_sync_background">Im Hintergrund alle 4 Stunden, wenn der Share erreichbar ist.</string>
     <string name="settings_sync_now">Jetzt synchronisieren</string>
     <string name="settings_section_unlock">Entsperren</string>
     <string name="settings_fingerprint">Mit Fingerabdruck</string>
@@ -192,9 +181,7 @@
     <string name="settings_fingerprint_none_enrolled">Im System ist kein Fingerabdruck eingerichtet.</string>
     <string name="settings_fingerprint_no_hardware">Dieses Gerät hat keinen geeigneten Fingerabdrucksensor.</string>
     <string name="settings_password_interval">Master-Passwort erneut nötig nach</string>
-    <string name="settings_password_interval_help">Eine längere Frist gilt ab der nächsten Eingabe des Master-Passworts.</string>
     <string name="settings_auto_lock">Automatisch sperren nach</string>
-    <string name="settings_auto_lock_help">Zeit ohne Nutzung. Beim Wegwischen der App sperrt sie immer sofort.</string>
     <string name="settings_section_clipboard">Zwischenablage</string>
     <string name="settings_clipboard">Kopiertes löschen nach</string>
     <string name="settings_section_system">System</string>
@@ -218,8 +205,6 @@
     <string name="picker_fill_into">Ausfüllen in</string>
     <string name="picker_not_set_up">KeyPass Mobile ist noch nicht eingerichtet.</string>
     <string name="picker_web_sub">%1$s · %2$s</string>
-    <string name="picker_app_sub">App-Name „%1$s“, dient nur zum Sortieren</string>
-    <string name="picker_app_sub_unknown">App-Name nicht lesbar</string>
     <string name="picker_matching_web">Passend zu %1$s</string>
     <string name="picker_matching_app">Passend zur App „%1$s“</string>
     <string name="picker_matching_app_unknown">Passend zur App</string>
@@ -265,7 +250,7 @@
     <string name="msg_sync_other_server">Sync gestoppt: anderer Server.</string>
     <string name="msg_sync_started">Sync läuft im Hintergrund.</string>
     <string name="msg_server_accepted">Neuer Server gemerkt. Aktuelle Version vom Share geladen.</string>
-    <string name="msg_share_denied">Kein Zugriff auf „%1$s“ mit %2$s. So soll es sein: Der Benutzer darf nur die Datenbank lesen.</string>
+    <string name="msg_share_denied">Kein Zugriff auf „%1$s“ mit %2$s.</string>
     <string name="msg_share_not_found">Freigabe „%1$s“ nicht gefunden oder kein Zugriff.</string>
     <string name="msg_source_saved">Quelle gespeichert.</string>
     <string name="msg_fingerprint_failed">Fingerabdruck nicht erkannt. Gib das Master-Passwort ein.</string>

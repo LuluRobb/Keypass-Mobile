@@ -139,7 +139,15 @@ fun EntryListScreen(
                 state.banner?.let { Banner(it, onBannerDetails, onBannerDismiss) }
             }
         },
-        snackbarHost = { MessageHost(message, onMessageDismissed) },
+        // The Scaffold knows only the horizontal insets here (the content scrolls behind the system bars),
+        // so the snackbar lifts itself above the navigation bar and the keyboard.
+        snackbarHost = {
+            MessageHost(
+                message,
+                onMessageDismissed,
+                Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
+            )
+        },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
         containerColor = MaterialTheme.colorScheme.surface,
     ) { padding ->

@@ -34,19 +34,13 @@ fun PlatformFingerprintAvailability.toUi(): FingerprintAvailability = when (this
     PlatformFingerprintAvailability.NO_HARDWARE -> FingerprintAvailability.NoHardware
 }
 
-/**
- * The server form's error for a failed connect. [PlatformConnectError.PasswordRequired]
- * only comes from the stored-password connect; the form then shows the password
- * field and the model uses connect(), so the error maps to the login failure
- * (the server screen has no separate password-missing error).
- */
+/** The server form's error for a failed connect. */
 fun PlatformConnectError.toUi(): ConnectError = when (this) {
     PlatformConnectError.Unreachable -> ConnectError.Unreachable
     PlatformConnectError.LoginFailed -> ConnectError.LoginFailed
     is PlatformConnectError.OtherServer -> ConnectError.OtherServer(rememberedNameOf(change))
     PlatformConnectError.Unsupported -> ConnectError.Unsupported
     PlatformConnectError.Unknown -> ConnectError.Unknown
-    PlatformConnectError.PasswordRequired -> ConnectError.LoginFailed
 }
 
 fun KdbxFileEntry.toUi(time: TimeSource): KdbxFile = KdbxFile(name, sizeBytes, time.local(modified))

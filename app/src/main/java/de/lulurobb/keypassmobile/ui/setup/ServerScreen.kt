@@ -28,6 +28,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -85,8 +87,6 @@ data class ServerFormState(
     val error: ConnectError? = null,
     /** Null: changing the source from the settings, with back arrow and without intro. */
     val step: SetupStep? = SetupStep(1),
-    /** The stored SMB password fits this address: an empty password field means "use it". */
-    val storedPasswordUsable: Boolean = false,
 )
 
 /**
@@ -115,10 +115,18 @@ fun ServerScreen(
     val ime = WindowInsets.ime
     val density = LocalDensity.current
     val keyboardOpen by remember { derivedStateOf { ime.getBottom(density) > 0 } }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
     val connectButton: @Composable () -> Unit = {
         BigButton(
             text = stringResource(if (state.connecting) R.string.setup_connecting else R.string.setup_connect),
-            onClick = onConnect,
+            onClick = {
+                // The keyboard goes away with the tap, whichever field had the focus.
+                password.hideKeyboard()
+                focus.clearFocus()
+                keyboard?.hide()
+                onConnect()
+            },
             loading = state.connecting,
         )
     }
@@ -161,7 +169,6 @@ fun ServerScreen(
                     value = state.host,
                     onValueChange = onHostChange,
                     label = stringResource(R.string.setup_field_host),
-                    helper = stringResource(R.string.setup_field_host_helper),
                     error = if (ServerField.Host in state.invalidFields) stringResource(R.string.setup_error_host_missing) else null,
                     keyboardType = KeyboardType.Uri,
                     enabled = enabled,
@@ -180,7 +187,6 @@ fun ServerScreen(
                     input = password,
                     label = stringResource(R.string.setup_field_password),
                     enabled = enabled,
-                    supportingText = if (state.storedPasswordUsable) stringResource(R.string.setup_field_password_keep) else null,
                     imeAction = if (state.advancedOpen) ImeAction.Next else ImeAction.Done,
                     modifier = Modifier.padding(top = 8.dp),
                 )

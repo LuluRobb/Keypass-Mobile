@@ -14,13 +14,14 @@ import java.time.LocalDateTime
 /* Mapping of the platform's sync information to the types of the sync screens. */
 
 /**
- * Sync state for the list chip and the settings. The version of the share is
- * open ("Aktuell") only when the unlock confirmed it; every other case shows the
- * offline copy, with the reason derived from [info] and [unlocked].
+ * Sync state for the list chip and the settings. "Aktuell" only when the unlock confirmed the
+ * version of the share and no problem has been recorded since (see [hasSyncProblem]); every
+ * other case shows the offline copy, with the reason derived from [info] and [unlocked] and
+ * the date of the last successful sync.
  */
 fun toSyncState(info: SyncInfo, unlocked: SessionView.Unlocked?, time: TimeSource): SyncState {
     val stamp = copyStamp(info, time)
-    val status = if (info.status.openedVersion == OpenedVersion.SHARE) {
+    val status = if (info.status.openedVersion == OpenedVersion.SHARE && !hasSyncProblem(info)) {
         SyncStatus.Current(stamp)
     } else {
         SyncStatus.OfflineCopy(stamp, offlineReason(info, unlocked))
@@ -50,6 +51,13 @@ fun toOtherServerInfo(change: ServerChange): OtherServerInfo = OtherServerInfo(
 /** Name of the server the app remembered: decoded name, else GUID, else the host. */
 internal fun rememberedNameOf(change: ServerChange): String =
     change.rememberedName ?: change.rememberedGuid?.toString() ?: change.host
+
+/**
+ * True when the last sync did not succeed: a problem is recorded (a successful sync clears it)
+ * or the server question is pending (the sync is stopped until it is answered).
+ */
+internal fun hasSyncProblem(info: SyncInfo): Boolean =
+    info.status.lastProblem != null || info.serverChange != null
 
 /**
  * Why the offline copy is open. A pending server question and a rejected new version win over a plain problem.

@@ -23,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import de.lulurobb.keypassmobile.R
 import de.lulurobb.keypassmobile.ui.common.MessageHost
@@ -108,15 +107,6 @@ fun SystemSetupScreen(
                 Modifier.padding(horizontal = ScreenPadding).padding(top = 12.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (!state.autofillSelected || !state.notificationsAllowed) {
-                    Text(
-                        stringResource(R.string.system_later_hint),
-                        modifier = Modifier.fillMaxWidth(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                }
                 BigButton(text = stringResource(R.string.system_finish), onClick = onFinish)
             }
         }

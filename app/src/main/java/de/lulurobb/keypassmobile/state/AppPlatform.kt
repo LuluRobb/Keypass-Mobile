@@ -144,11 +144,6 @@ sealed interface SessionView {
 interface SourceSetupPort : Closeable {
     suspend fun connect(address: ServerAddress, password: CharArray, acceptServerGuid: UUID? = null): ConnectResult
 
-    /** True when [connectWithStoredPassword] can be used for [address]. */
-    fun canUseStoredPassword(address: ServerAddress): Boolean
-
-    suspend fun connectWithStoredPassword(address: ServerAddress, acceptServerGuid: UUID? = null): ConnectResult
-
     suspend fun listFolder(share: String, path: List<String>): FolderResult
 
     suspend fun chooseFile(share: String, filePath: List<String>): ChooseResult

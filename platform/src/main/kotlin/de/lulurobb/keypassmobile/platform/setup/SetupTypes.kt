@@ -56,13 +56,6 @@ sealed interface ConnectError {
     data object Unsupported : ConnectError
 
     data object Unknown : ConnectError
-
-    /**
-     * Only from [SourceSetup.connectWithStoredPassword]: host, user or domain
-     * differ from the current source, or no password is stored. Show the
-     * password field and use connect().
-     */
-    data object PasswordRequired : ConnectError
 }
 
 /** Result of [SourceSetup.listFolder]. */

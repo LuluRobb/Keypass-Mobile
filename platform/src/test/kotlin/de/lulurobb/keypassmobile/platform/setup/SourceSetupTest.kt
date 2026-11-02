@@ -194,61 +194,6 @@ class SourceSetupTest {
 
     private fun offline() = File(syncDir(), "offline.kdbx")
 
-    // ---- connectWithStoredPassword ----
-
-    @Test
-    fun `stored password is offered only for the account of the current source`() = runTest {
-        passwords.stored = "secret".toCharArray()
-        val setup = setup(session())
-        assertTrue(setup.canUseStoredPassword(address))
-        assertTrue(setup.canUseStoredPassword(address.copy(host = "NAS", user = "KPM")))
-        for (other in listOf(
-            address.copy(host = "other-nas"),
-            address.copy(user = "admin"),
-            address.copy(port = 4450),
-            address.copy(domain = "WORKGROUP"),
-        )) {
-            assertFalse(setup.canUseStoredPassword(other), "$other")
-            assertEquals(ConnectResult.Failed(ConnectError.PasswordRequired), setup.connectWithStoredPassword(other))
-        }
-        assertTrue(connector.calls.isEmpty(), "nothing was sent to any server")
-        assertTrue(passwords.loaded.isEmpty(), "the stored password was not even read")
-    }
-
-    @Test
-    fun `without a stored password the password is required and nothing is sent`() = runTest {
-        val setup = setup(session())
-        assertFalse(setup.canUseStoredPassword(address))
-        assertEquals(ConnectResult.Failed(ConnectError.PasswordRequired), setup.connectWithStoredPassword(address))
-        assertTrue(connector.calls.isEmpty())
-    }
-
-    @Test
-    fun `stored password connects and its copy is wiped`() = runTest {
-        passwords.stored = "secret".toCharArray()
-        val setup = setup(session())
-        val result = assertIs<ConnectResult.Connected>(setup.connectWithStoredPassword(address))
-        assertEquals("reitano-nas", result.server.name)
-        assertEquals(listOf("secret"), connector.calls.map { it.password })
-        assertEquals(guid, connector.calls.single().expectedGuid, "the remembered server identity is still checked")
-        assertTrue(passwords.loaded.isNotEmpty() && passwords.loaded.all { c -> c.all { it == '\u0000' } }, "loaded copy wiped")
-        setup.close()
-    }
-
-    @Test
-    fun `a stale stored password gives LoginFailed and the typed one still works`() = runTest {
-        passwords.stored = "stale".toCharArray()
-        val setup = setup(session())
-        connector.failure = SmbException(SmbException.Reason.AUTH_FAILED, "rejected")
-        assertEquals(ConnectResult.Failed(ConnectError.LoginFailed), setup.connectWithStoredPassword(address))
-        assertTrue(passwords.loaded.all { c -> c.all { it == '\u0000' } })
-
-        connector.failure = null
-        assertIs<ConnectResult.Connected>(setup.connect(address, "typed".toCharArray()))
-        assertEquals(listOf("stale", "typed"), connector.calls.map { it.password })
-        setup.close()
-    }
-
     // ---- chooseFile and the source change ----
 
     private suspend fun TestScope.choose(setup: SourceSetup, file: String): ChooseResult {
@@ -369,7 +314,6 @@ class SourceSetupTest {
         assertFalse(candidate().exists(), "the foreign file must not be promoted for the old source")
         // The old server must never get the new server's password (DS-04).
         assertEquals("old-pw", passwords.storedText())
-        assertFalse(setup.canUseStoredPassword(address.copy(host = "other-nas")))
         setup.close()
     }
 

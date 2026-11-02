@@ -33,10 +33,7 @@ enum class SourceFlowMode {
     /** "Quelle ändern" from the settings while unlocked. */
     ChangeUnlocked,
 
-    /**
-     * "Quelle ändern" while locked (unlock screen). The stored SMB password is not used here: whoever
-     * holds the locked phone must know the password to browse the share.
-     */
+    /** "Quelle ändern" while locked (unlock screen). */
     ChangeLocked,
 }
 
@@ -64,9 +61,6 @@ class SourceFlowModel(
 ) : Closeable {
 
     private val changing = mode != SourceFlowMode.FirstRun
-
-    /** Only the change from the settings (unlocked) may connect with the stored SMB password. */
-    private val storedPasswordAllowed = mode == SourceFlowMode.ChangeUnlocked
 
     private var openedPort: SourceSetupPort? = null
 
@@ -103,10 +97,6 @@ class SourceFlowModel(
     private var before: Pair<List<String>, BrowseContent>? = null
     private var choosing = false
 
-    init {
-        if (storedPasswordAllowed) refreshStoredPassword()
-    }
-
     // ---- server form ----
 
     fun onHostChange(host: String) = editForm { it.copy(host = host, invalidFields = it.invalidFields - ServerField.Host) }
@@ -119,10 +109,7 @@ class SourceFlowModel(
 
     fun onToggleAdvanced() = mutableForm.update { it.copy(advancedOpen = !it.advancedOpen) }
 
-    /**
-     * Validates, then connects with the typed password, or, when changing the source while unlocked, with
-     * the stored one when the field is empty and it fits.
-     */
+    /** Validates, then connects with the typed password (the stored SMB password is only for the automatic sync). */
     fun onConnect() {
         val current = mutableForm.value
         if (current.connecting) return
@@ -151,7 +138,6 @@ class SourceFlowModel(
         // Another address: the server question and the last error no longer apply.
         acceptGuid = null
         mutableForm.update { change(it).copy(error = null) }
-        if (storedPasswordAllowed) refreshStoredPassword()
     }
 
     private fun validate(form: ServerFormState): Set<ServerField> = buildSet {
@@ -170,23 +156,13 @@ class SourceFlowModel(
         return ServerAddress(form.host.trim(), form.user.trim(), port, form.domain.trim())
     }
 
-    private fun refreshStoredPassword() {
-        val address = addressOf(mutableForm.value)?.takeIf { it.host.isNotEmpty() && it.user.isNotEmpty() }
-        val usable = address != null && port.canUseStoredPassword(address)
-        mutableForm.update { it.copy(storedPasswordUsable = usable) }
-    }
-
     private fun connect(acceptServerGuid: UUID?) {
         val address = addressOf(mutableForm.value) ?: return
         mutableForm.update { it.copy(connecting = true, error = null) }
         scope.launch {
             val typed = readPassword()
             val result = try {
-                if (typed.isEmpty() && storedPasswordAllowed && port.canUseStoredPassword(address)) {
-                    port.connectWithStoredPassword(address, acceptServerGuid)
-                } else {
-                    port.connect(address, typed, acceptServerGuid)
-                }
+                port.connect(address, typed, acceptServerGuid)
             } finally {
                 typed.fill('\u0000')
             }

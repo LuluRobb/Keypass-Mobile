@@ -11,7 +11,6 @@ import de.lulurobb.keypassmobile.platform.settings.SourceConfig
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import de.lulurobb.keypassmobile.platform.setup.BrowseError
 import de.lulurobb.keypassmobile.platform.setup.ConnectError
-import de.lulurobb.keypassmobile.platform.setup.ServerAddress
 import de.lulurobb.keypassmobile.platform.setup.SourceSetup
 import de.lulurobb.keypassmobile.platform.smb.ServerNames
 import de.lulurobb.keypassmobile.platform.smb.remoteErrorOf
@@ -142,18 +141,6 @@ class MappingTest {
         assertEquals(listOf("KeePass"), a.folderPath)
         assertEquals("Passwords.kdbx", a.fileName)
         assertEquals("\\\\NAS\\Daten\\KeePass\\Passwords.kdbx", a.unc)
-    }
-
-    @Test
-    fun `stored SMB password applies to host, port, user and domain of the current source`() {
-        val source = SourceConfig("NAS", 445, "", "kpm", "Daten", listOf("db.kdbx"))
-        val same = ServerAddress(host = " nas ", user = "KPM")
-        assertTrue(SourceSetup.storedPasswordApplies(source, same))
-        assertFalse(SourceSetup.storedPasswordApplies(source, same.copy(port = 4450)))
-        assertFalse(SourceSetup.storedPasswordApplies(source, same.copy(host = "other-nas")))
-        assertFalse(SourceSetup.storedPasswordApplies(source, same.copy(user = "admin")))
-        assertFalse(SourceSetup.storedPasswordApplies(source, same.copy(domain = "WORKGROUP")))
-        assertFalse(SourceSetup.storedPasswordApplies(null, same))
     }
 
     @Test

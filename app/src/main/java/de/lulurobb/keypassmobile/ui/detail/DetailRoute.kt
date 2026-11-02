@@ -24,6 +24,7 @@ fun DetailRoute(
         onLock = model::onLock,
         onCopyUsername = model::onCopyUsername,
         onCopyPassword = model::onCopyPassword,
+        onTogglePassword = model::onTogglePassword,
         message = message,
         onMessageDismissed = messages::dismiss,
     )

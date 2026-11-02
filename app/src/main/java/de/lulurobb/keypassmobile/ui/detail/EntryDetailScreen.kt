@@ -18,12 +18,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import de.lulurobb.keypassmobile.R
 import de.lulurobb.keypassmobile.model.VaultEntry
@@ -48,11 +49,16 @@ data class EntryDetailState(
     val rootGroupName: String,
     /** Seconds until copied values are cleared (AF-09). */
     val clipboardSeconds: Int,
+    /**
+     * The revealed password, null while hidden. The model owns and wipes the array; the screen only
+     * reads it while it is shown.
+     */
+    val shownPassword: CharArray? = null,
 )
 
 /**
  * Copy view of one entry (UI-02, AF-09): icon, title, URL, group, username,
- * notes and the two copy buttons. The password itself is never shown.
+ * notes and the two copy buttons. The password is hidden until the eye button reveals it.
  */
 @Composable
 fun EntryDetailScreen(
@@ -63,6 +69,7 @@ fun EntryDetailScreen(
     onCopyUsername: () -> Unit,
     onCopyPassword: () -> Unit,
     modifier: Modifier = Modifier,
+    onTogglePassword: () -> Unit = {},
     message: UiMessage? = null,
     onMessageDismissed: () -> Unit = {},
 ) {
@@ -139,15 +146,7 @@ fun EntryDetailScreen(
                     }
                 }
                 ValueBlock(label = stringResource(R.string.detail_password)) {
-                    Text(
-                        stringResource(R.string.detail_password_dots),
-                        style = MaterialTheme.typography.bodyLarge.copy(letterSpacing = MaterialTheme.typography.bodyLarge.fontSize * 0.18f),
-                    )
-                    Text(
-                        stringResource(R.string.detail_password_never_shown),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = scheme.onSurfaceVariant,
-                    )
+                    PasswordValue(state.shownPassword, onTogglePassword)
                 }
                 if (entry.notes.isNotBlank()) {
                     ValueBlock(label = stringResource(R.string.detail_notes)) {
@@ -181,14 +180,34 @@ fun EntryDetailScreen(
                     onClick = onCopyPassword,
                     icon = KpmIcons.Copy,
                 )
-                Text(
-                    stringResource(R.string.detail_clipboard_note, state.clipboardSeconds),
-                    modifier = Modifier.fillMaxWidth(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
             }
+        }
+    }
+}
+
+/** The dots or, while revealed, the password in monospace; the eye button toggles (UI-02). */
+@Composable
+private fun PasswordValue(shown: CharArray?, onToggle: () -> Unit) {
+    // The String copy lives only as long as the password is shown (the model wipes the array).
+    val text = remember(shown) { shown?.let { String(it) } }
+    val style = MaterialTheme.typography.bodyLarge
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (text != null) {
+            Text(text, style = style.copy(fontFamily = FontFamily.Monospace), modifier = Modifier.weight(1f))
+        } else {
+            Text(
+                stringResource(R.string.detail_password_dots),
+                style = style.copy(letterSpacing = style.fontSize * 0.18f),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        IconButton(onClick = onToggle, modifier = Modifier.size(40.dp)) {
+            KpmIcon(
+                id = if (text != null) KpmIcons.VisibilityOff else KpmIcons.Visibility,
+                contentDescription = stringResource(
+                    if (text != null) R.string.action_hide_password else R.string.action_show_password,
+                ),
+            )
         }
     }
 }

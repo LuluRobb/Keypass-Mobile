@@ -102,9 +102,67 @@ class SyncMappingTest {
     }
 
     @Test
-    fun `the open share version stays current even with a pending server question`() {
+    fun `a recorded problem turns the open share version into the offline copy with the last successful sync`() {
+        for ((problem, reason) in listOf(
+            SyncProblem.UNREACHABLE to OfflineReason.ShareUnreachable,
+            SyncProblem.AUTH_FAILED to OfflineReason.LoginFailed,
+            SyncProblem.NOT_FOUND to OfflineReason.FileNotFound,
+            SyncProblem.ACCESS_DENIED to OfflineReason.NoAccess,
+            SyncProblem.SERVER_CHANGED to OfflineReason.OtherServer,
+            SyncProblem.REMOTE_ERROR to OfflineReason.ShareUnreachable,
+        )) {
+            val info = testSyncInfo(
+                openedVersion = OpenedVersion.SHARE,
+                lastProblem = problem,
+                lastProblemAt = Instant.parse("2026-11-02T07:00:00Z"),
+            )
+            assertEquals(
+                SyncState(SyncStatus.OfflineCopy(syncedLocal, reason)),
+                toSyncState(info, unlockedView(), time),
+                "$problem",
+            )
+        }
+    }
+
+    @Test
+    fun `the open share version is current again once the problem is cleared by a successful sync`() {
+        val failed = testSyncInfo(openedVersion = OpenedVersion.SHARE, lastProblem = SyncProblem.UNREACHABLE)
+        assertEquals(
+            SyncStatus.OfflineCopy(syncedLocal, OfflineReason.ShareUnreachable),
+            toSyncState(failed, unlockedView(), time).status,
+        )
+        val recovered = testSyncInfo(
+            openedVersion = OpenedVersion.SHARE,
+            lastSuccessfulSync = Instant.parse("2026-11-02T08:00:00Z"),
+            lastProblem = null,
+        )
+        assertEquals(
+            SyncStatus.Current(LocalDateTime.of(2026, 11, 2, 8, 0)),
+            toSyncState(recovered, unlockedView(), time).status,
+        )
+    }
+
+    @Test
+    fun `a running sync with a recorded problem keeps the offline copy, without a problem the share version stays current`() {
+        val failed = testSyncInfo(openedVersion = OpenedVersion.SHARE, lastProblem = SyncProblem.UNREACHABLE, syncing = true)
+        assertEquals(
+            SyncState(SyncStatus.OfflineCopy(syncedLocal, OfflineReason.ShareUnreachable), syncing = true),
+            toSyncState(failed, unlockedView(), time),
+        )
+        val clean = testSyncInfo(openedVersion = OpenedVersion.SHARE, syncing = true)
+        assertEquals(
+            SyncState(SyncStatus.Current(syncedLocal), syncing = true),
+            toSyncState(clean, unlockedView(), time),
+        )
+    }
+
+    @Test
+    fun `a pending server question turns the open share version into the offline copy`() {
         val info = testSyncInfo(serverChange = testServerChange())
-        assertEquals(SyncStatus.Current(syncedLocal), toSyncState(info, unlockedView(), time).status)
+        assertEquals(
+            SyncStatus.OfflineCopy(syncedLocal, OfflineReason.OtherServer),
+            toSyncState(info, unlockedView(), time).status,
+        )
     }
 
     @Test

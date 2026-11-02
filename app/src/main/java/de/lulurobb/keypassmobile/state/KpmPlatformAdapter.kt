@@ -133,11 +133,6 @@ class KpmPlatformAdapter(
         override suspend fun connect(address: ServerAddress, password: CharArray, acceptServerGuid: UUID?): ConnectResult =
             setup.connect(address, password, acceptServerGuid)
 
-        override fun canUseStoredPassword(address: ServerAddress): Boolean = setup.canUseStoredPassword(address)
-
-        override suspend fun connectWithStoredPassword(address: ServerAddress, acceptServerGuid: UUID?): ConnectResult =
-            setup.connectWithStoredPassword(address, acceptServerGuid)
-
         override suspend fun listFolder(share: String, path: List<String>): FolderResult = setup.listFolder(share, path)
 
         override suspend fun chooseFile(share: String, filePath: List<String>): ChooseResult = setup.chooseFile(share, filePath)

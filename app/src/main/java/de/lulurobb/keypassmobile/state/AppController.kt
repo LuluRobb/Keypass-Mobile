@@ -185,10 +185,12 @@ class AppController(
     /**
      * onStop of the activity, not for a configuration change. The first-run connection at the unlock step
      * (setup step 3) is closed so the SMB password does not wait in memory while the app is in the
-     * background; going back from the unlock screen then shows the server form again.
+     * background; going back from the unlock screen then shows the server form again. A revealed password
+     * is hidden and wiped.
      */
     fun onStop() {
         firstRunFlow?.model?.disconnect()
+        detailModels.values.forEach { it.model.hidePassword() }
     }
 
     /** Discards all models and closes the open source connections. Call when the activity is gone for good. */

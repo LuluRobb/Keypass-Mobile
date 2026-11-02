@@ -82,6 +82,9 @@ class FakeAppPlatform(
 
     /** Passwords by entry for revealPassword(). */
     val passwords = mutableMapOf<UUID, String>()
+
+    /** The arrays revealPassword() handed out, to check that the callers wipe them. */
+    val revealed = mutableListOf<CharArray>()
     var copyResult = true
 
     /** Setup objects handed out by startSourceSetup(); the last one is the current one. */
@@ -148,7 +151,7 @@ class FakeAppPlatform(
 
     override fun revealPassword(id: UUID): CharArray? {
         calls += "revealPassword:$id"
-        return passwords[id]?.toCharArray()
+        return passwords[id]?.toCharArray()?.also { revealed += it }
     }
 
     override fun copyUsername(id: UUID): Boolean {

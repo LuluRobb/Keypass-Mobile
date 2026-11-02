@@ -44,6 +44,7 @@ import de.lulurobb.keypassmobile.R
 import de.lulurobb.keypassmobile.model.FillTarget
 import de.lulurobb.keypassmobile.ui.common.MessageHost
 import de.lulurobb.keypassmobile.ui.common.UiMessage
+import de.lulurobb.keypassmobile.ui.common.displayName
 import de.lulurobb.keypassmobile.ui.common.everyDaysText
 import de.lulurobb.keypassmobile.ui.common.formatFileSize
 import de.lulurobb.keypassmobile.ui.common.text
@@ -155,6 +156,11 @@ fun UnlockScreen(
     val showPassword = state.mode == UnlockMode.Password || first != null
     val problem = state.problem
     val edited by rememberUpdatedState(onPasswordEdited)
+    // The keyboard goes away with the submit, button and IME action alike.
+    val submit = {
+        password.hideKeyboard()
+        onSubmitPassword()
+    }
     LaunchedEffect(password) {
         snapshotFlow { password.length }.drop(1).collect { edited() }
     }
@@ -252,7 +258,7 @@ fun UnlockScreen(
                             },
                             enabled = !state.busy,
                             imeAction = ImeAction.Go,
-                            onImeAction = onSubmitPassword,
+                            onImeAction = submit,
                         )
                         if (first != null && first.fingerprintAvailable) {
                             SwitchRow(
@@ -263,7 +269,7 @@ fun UnlockScreen(
                         }
                         BigButton(
                             text = stringResource(R.string.unlock_button),
-                            onClick = onSubmitPassword,
+                            onClick = submit,
                         )
                         if (first == null && state.fingerprintUsable && state.passwordReason == null) {
                             TextButton(onClick = onFingerprint) {
@@ -307,12 +313,12 @@ private fun UnlockHead(state: UnlockState) {
     }
 }
 
-/** Where the request fills (web: domain, app: package name, AF-07). */
+/** Where the request fills (web: domain, app: its visible name, else the package name, AF-07). */
 @Composable
 private fun FillContext(target: FillTarget) {
     val where = when (target) {
         is FillTarget.Web -> target.host
-        is FillTarget.App -> target.packageName
+        is FillTarget.App -> target.displayName()
     }
     val template = stringResource(R.string.unlock_fill_context, "\u0000")
     val text = buildAnnotatedString {

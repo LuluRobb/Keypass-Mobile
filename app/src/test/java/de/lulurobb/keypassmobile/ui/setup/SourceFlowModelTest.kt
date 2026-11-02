@@ -238,7 +238,6 @@ class SourceFlowModelTest {
             PlatformConnectError.LoginFailed to ConnectError.LoginFailed,
             PlatformConnectError.Unsupported to ConnectError.Unsupported,
             PlatformConnectError.Unknown to ConnectError.Unknown,
-            PlatformConnectError.PasswordRequired to ConnectError.LoginFailed,
         )
         for ((platformError, uiError) in expected) {
             setup.connectResults += ConnectResult.Failed(platformError)
@@ -300,115 +299,51 @@ class SourceFlowModelTest {
         assertEquals(1, setup.connectCalls.size)
     }
 
-    // ---- stored password ----
+    // ---- SMB password: always typed ----
 
     @Test
-    fun `change mode with a usable stored password says so and connects with it when the field is empty`() {
-        setup.storedPasswordUsable = true
-        setup.connectResults += ConnectResult.Connected(server, docsShares)
-        val model = model(SourceFlowMode.ChangeUnlocked, source())
-        assertTrue(model.form.value.storedPasswordUsable)
-        model.readPassword = { CharArray(0) }
-        model.onConnect()
-        val call = setup.connectCalls.single()
-        assertNull(call.password)
-        assertEquals(ServerAddress("nas.local", "luca", 445, ""), call.address)
-        assertEquals(SourceFlowScreen.Browse, model.screen.value)
+    fun `every mode connects with the typed password, also an empty one`() {
+        for (mode in SourceFlowMode.entries) {
+            val fake = FakeSourceSetup()
+            platform.nextSetup = { fake }
+            fake.connectResults += ConnectResult.Connected(server, docsShares)
+            val model = model(mode, if (mode == SourceFlowMode.FirstRun) null else source())
+            fill(model, password = null)
+            model.onConnect()
+            val call = fake.connectCalls.single()
+            assertEquals("", call.password, "$mode: the empty password is sent as typed")
+            assertEquals(ServerAddress("nas.local", "luca", 445, ""), call.address, "$mode")
+        }
     }
 
     @Test
-    fun `a typed password wins over the stored one`() {
-        setup.storedPasswordUsable = true
+    fun `a typed password is sent`() {
         setup.connectResults += ConnectResult.Connected(server, docsShares)
-        val model = model(SourceFlowMode.ChangeLocked, source())
+        val model = model(SourceFlowMode.ChangeUnlocked, source())
         model.readPassword = { "neu".toCharArray() }
         model.onConnect()
         assertEquals("neu", setup.connectCalls.single().password)
     }
 
     @Test
-    fun `locked change never uses the stored password, it must be typed`() {
-        // Whoever holds the locked phone must not browse the share without knowing the password.
-        setup.storedPasswordUsable = true
-        setup.connectResults += ConnectResult.Connected(server, docsShares)
-        val model = model(SourceFlowMode.ChangeLocked, source())
-        assertFalse(model.form.value.storedPasswordUsable)
-        // The stored password is not even asked for, also not after the address was edited.
+    fun `the source setup is opened only by the connect`() {
+        val model = model(SourceFlowMode.ChangeUnlocked, source())
         model.onHostChange("andere-nas")
-        model.onHostChange("nas.local")
-        assertFalse(model.form.value.storedPasswordUsable)
+        model.onPortChange("4455")
         assertTrue(platform.calls.none { it == "startSourceSetup" })
-
-        model.readPassword = { CharArray(0) }
-        model.onConnect()
-        val call = setup.connectCalls.single()
-        // The empty password is sent as typed; connectWithStoredPassword (password null) is not used.
-        assertEquals("", call.password)
-        assertEquals(ServerAddress("nas.local", "luca", 445, ""), call.address)
     }
 
     @Test
-    fun `locked change accepts another server with the typed password`() {
+    fun `another server is accepted with the typed password`() {
         val change = ServerChange("nas.local", null, null, UUID.randomUUID(), null)
-        setup.storedPasswordUsable = true
         setup.connectResults += ConnectResult.Failed(PlatformConnectError.OtherServer(change))
         setup.connectResults += ConnectResult.Connected(server, docsShares)
-        val model = model(SourceFlowMode.ChangeLocked, source())
+        val model = model(SourceFlowMode.ChangeUnlocked, source())
         model.readPassword = { "geheim".toCharArray() }
         model.onConnect()
         model.onAcceptOtherServer()
         assertEquals(listOf("geheim", "geheim"), setup.connectCalls.map { it.password })
         assertEquals(change.newGuid, setup.connectCalls[1].acceptServerGuid)
-    }
-
-    @Test
-    fun `without a usable stored password an empty field connects with the empty password`() {
-        setup.storedPasswordUsable = false
-        val model = model(SourceFlowMode.ChangeUnlocked, source())
-        assertFalse(model.form.value.storedPasswordUsable)
-        model.readPassword = { CharArray(0) }
-        model.onConnect()
-        assertEquals("", setup.connectCalls.single().password)
-    }
-
-    @Test
-    fun `stored password flag is evaluated again when the address changes`() {
-        setup.storedPasswordUsable = true
-        val model = model(SourceFlowMode.ChangeUnlocked, source())
-        assertTrue(model.form.value.storedPasswordUsable)
-        setup.storedPasswordUsable = false
-        model.onHostChange("andere-nas")
-        assertFalse(model.form.value.storedPasswordUsable)
-        setup.storedPasswordUsable = true
-        model.onPortChange("4455")
-        assertTrue(model.form.value.storedPasswordUsable)
-        model.onPortChange("kaputt")
-        assertFalse(model.form.value.storedPasswordUsable)
-    }
-
-    @Test
-    fun `first run never uses the stored password`() {
-        setup.storedPasswordUsable = true
-        val model = model()
-        assertFalse(model.form.value.storedPasswordUsable)
-        fill(model, password = null)
-        model.onConnect()
-        assertEquals("", setup.connectCalls.single().password)
-    }
-
-    @Test
-    fun `other server with the stored password is accepted with the stored password`() {
-        val newGuid = UUID.randomUUID()
-        val change = ServerChange("nas.local", null, null, newGuid, null)
-        setup.storedPasswordUsable = true
-        setup.connectResults += ConnectResult.Failed(PlatformConnectError.OtherServer(change))
-        setup.connectResults += ConnectResult.Connected(server, docsShares)
-        val model = model(SourceFlowMode.ChangeUnlocked, source())
-        model.readPassword = { CharArray(0) }
-        model.onConnect()
-        model.onAcceptOtherServer()
-        assertEquals(listOf(null, null), setup.connectCalls.map { it.password })
-        assertEquals(newGuid, setup.connectCalls[1].acceptServerGuid)
     }
 
     // ---- browse: paths ----

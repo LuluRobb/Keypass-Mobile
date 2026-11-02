@@ -61,7 +61,6 @@ class SettingsMappingTest {
         assertEquals(ConnectError.LoginFailed, PlatformConnectError.LoginFailed.toUi())
         assertEquals(ConnectError.Unsupported, PlatformConnectError.Unsupported.toUi())
         assertEquals(ConnectError.Unknown, PlatformConnectError.Unknown.toUi())
-        assertEquals(ConnectError.LoginFailed, PlatformConnectError.PasswordRequired.toUi())
     }
 
     @Test

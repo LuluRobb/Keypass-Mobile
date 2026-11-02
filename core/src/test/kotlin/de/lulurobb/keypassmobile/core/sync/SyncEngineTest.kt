@@ -507,6 +507,51 @@ class SyncEngineTest {
         assertEquals(OpenedVersion.OFFLINE_COPY, engine.status().openedVersion)
     }
 
+    @Test
+    fun aLaterRefreshThatFindsTheOfflineCopyCurrentConfirmsTheOpenedVersion() {
+        establish()
+        opened(unlock("pw1"))
+        // The share was unreachable right after the unlock.
+        remote.statError = RemoteException(RemoteError.UNREACHABLE)
+        clock.advance(Duration.ofMinutes(5))
+        assertEquals(RefreshResult.Failed(SyncProblem.UNREACHABLE), refresh("pw1"))
+        assertEquals(OpenedVersion.OFFLINE_COPY, engine.status().openedVersion)
+
+        remote.statError = null
+        clock.advance(Duration.ofMinutes(5))
+        assertEquals(RefreshResult.UpToDate, refresh("pw1"))
+
+        val status = engine.status()
+        assertEquals(OpenedVersion.SHARE, status.openedVersion)
+        assertNull(status.lastProblem)
+        assertEquals(clock.now, status.lastSuccessfulSync)
+    }
+
+    @Test
+    fun aRejectedNewVersionNeverConfirmsTheOpenedVersion() {
+        establish()
+        opened(unlock("pw1"))
+        newVersion(kdbx("pw2", "v2"))
+
+        assertEquals(RefreshResult.NewVersionRejected, refresh("pw1"))
+        assertEquals(RefreshResult.NewVersionRejected, refresh("pw1"))
+
+        assertEquals(OpenedVersion.OFFLINE_COPY, engine.status().openedVersion)
+        assertEquals(SyncProblem.NEW_VERSION_REJECTED, engine.status().lastProblem)
+    }
+
+    @Test
+    fun theBackgroundSyncWithoutAKeyConfirmsNoOpenedVersion() {
+        establish()
+        opened(unlock("pw1"))
+        clock.advance(Duration.ofMinutes(5))
+
+        assertEquals(BackgroundSyncResult.UpToDate, engine.backgroundSync(remote))
+
+        assertEquals(OpenedVersion.OFFLINE_COPY, engine.status().openedVersion)
+        assertEquals(clock.now, engine.status().lastSuccessfulSync)
+    }
+
     // ---- persistence ----
 
     @Test

@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -240,6 +241,23 @@ class AppControllerTest {
     }
 
     @Test
+    fun `the stop of the activity hides a revealed password`() = runTest {
+        platform.passwords[entryId] = "geheim"
+        val controller = unlockedController()
+        controller.openEntry(entryId)
+        runCurrent()
+        val detail = (controller.screen.value as AppScreen.EntryDetail).model
+        detail.onTogglePassword()
+        runCurrent()
+        assertEquals("geheim", String(assertNotNull(detail.view.value?.state?.shownPassword)))
+
+        controller.onStop()
+        runCurrent()
+        assertNull(detail.view.value?.state?.shownPassword)
+        assertTrue(platform.revealed.single().all { it == '\u0000' })
+    }
+
+    @Test
     fun `navigation actions only apply on the screen they start from`() = runTest {
         val controller = unlockedController()
         controller.editSource()
@@ -346,6 +364,12 @@ class AppControllerTest {
         runCurrent()
         val settings = controller.screen.value.model as SettingsModel
         controller.editSource()
+        runCurrent()
+        // The source setup (and its connection) is opened by the connect.
+        setup.connectResults += ConnectResult.Connected(server, null)
+        val flow = controller.sourceModel()
+        flow.readPassword = { "geheim".toCharArray() }
+        flow.onConnect()
         runCurrent()
         assertEquals(1, platform.setups.size)
         assertFalse(platform.setups[0].closed)
@@ -639,8 +663,6 @@ class AppControllerTest {
     fun `another database can be chosen from the normal unlock screen and the unlock screen shows the new file`() = runTest {
         platform.settingsFlow.value = completed
         platform.offer = UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP)
-        // The password of the share is stored, the phone is locked: it must not be used.
-        setup.storedPasswordUsable = true
         val controller = controller()
         val unlock = controller.unlockModel()
         assertEquals("Db.kdbx", unlock.state.value.fileName)
@@ -649,9 +671,8 @@ class AppControllerTest {
         runCurrent()
         assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Server), controller.routeNow)
         val flow = controller.sourceModel()
-        assertFalse(flow.form.value.storedPasswordUsable)
 
-        // No password typed: the empty one is sent, not the stored one.
+        // No password typed: the empty one is sent.
         setup.connectResults += ConnectResult.Connected(server, listOf(ShareEntry("Docs", "")))
         flow.readPassword = { CharArray(0) }
         flow.onConnect()
@@ -671,20 +692,18 @@ class AppControllerTest {
     }
 
     @Test
-    fun `the unlocked source change from the settings still uses the stored password`() = runTest {
+    fun `the unlocked source change from the settings needs the typed password too`() = runTest {
         val controller = unlockedController()
-        setup.storedPasswordUsable = true
         controller.openSettings()
         runCurrent()
         controller.editSource()
         runCurrent()
         val flow = controller.sourceModel()
-        assertTrue(flow.form.value.storedPasswordUsable)
         setup.connectResults += ConnectResult.Connected(server, null)
         flow.readPassword = { CharArray(0) }
         flow.onConnect()
         runCurrent()
-        assertNull(setup.connectCalls.single().password)
+        assertEquals("", setup.connectCalls.single().password)
     }
 
     // ---- fingerprint availability on resume ----

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
@@ -105,7 +106,15 @@ fun SettingsScreen(
                 navigation = NavAction(KpmIcons.Back, stringResource(R.string.action_back), onBack),
             )
         },
-        snackbarHost = { MessageHost(message, onMessageDismissed) },
+        // The Scaffold knows only the horizontal insets here (the content scrolls behind the system bars),
+        // so the snackbar lifts itself above the navigation bar and the keyboard.
+        snackbarHost = {
+            MessageHost(
+                message,
+                onMessageDismissed,
+                Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
+            )
+        },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
         containerColor = scheme.surface,
     ) { padding ->
@@ -200,18 +209,8 @@ fun SettingsScreen(
                     onSelect = onPasswordIntervalChange,
                     label = { pluralStringResource(R.plurals.after_days, it, it) },
                 )
-                Text(
-                    stringResource(R.string.settings_password_interval_help),
-                    modifier = Modifier.padding(start = ScreenPadding + 40.dp, end = ScreenPadding, top = 6.dp, bottom = 8.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onSurfaceVariant,
-                )
             }
-            SettingsRow(
-                icon = KpmIcons.Lock,
-                title = stringResource(R.string.settings_auto_lock),
-                sublines = listOf(SettingsSubline(stringResource(R.string.settings_auto_lock_help))),
-            )
+            SettingsRow(icon = KpmIcons.Lock, title = stringResource(R.string.settings_auto_lock))
             ChoiceRow(
                 options = SettingsState.AutoLockTimes,
                 selected = state.autoLockSeconds,
@@ -298,9 +297,6 @@ private fun SyncRow(sync: SyncState) {
     SettingsRow(
         icon = icon,
         title = title,
-        sublines = listOf(
-            SettingsSubline(detail),
-            SettingsSubline(stringResource(R.string.settings_sync_background)),
-        ),
+        sublines = listOf(SettingsSubline(detail)),
     )
 }

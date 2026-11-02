@@ -52,6 +52,14 @@ class SyncEngine(
     private var openedVersion: OpenedVersion? = null
 
     /**
+     * The vault of the last unlock is the file that is the offline copy on disk. False when the
+     * candidate opened but could not be moved into place: the vault is then newer than the
+     * offline copy, and a sync that finds the offline copy current confirms nothing about it.
+     */
+    @Volatile
+    private var openedIsOffline = true
+
+    /**
      * Opens the local database without contacting the share (SY-03).
      *
      * The candidate is tried first. If it opens, it replaces the offline copy.
@@ -67,7 +75,7 @@ class SyncEngine(
         if (store.candidate.isFile) {
             when (val attempt = tryOpen(store.candidate, passwordHash)) {
                 is Attempt.Opened -> {
-                    promoteCandidate()
+                    openedIsOffline = promoteCandidate()
                     openedVersion = OpenedVersion.OFFLINE_COPY
                     return UnlockResult.Opened(attempt.vault, newVersionOpened = true, candidateRejected = null)
                 }
@@ -96,6 +104,7 @@ class SyncEngine(
                     // the master password was changed on the PC.
                     commit(state.copy(candidateRejected = true).withProblem(SyncProblem.NEW_VERSION_REJECTED, now()))
                 }
+                openedIsOffline = true
                 openedVersion = OpenedVersion.OFFLINE_COPY
                 val rejection = when (candidateFailure) {
                     null -> null
@@ -146,7 +155,9 @@ class SyncEngine(
         val current = state
         if (store.validMeta(store.offline, current.offline)?.matches(stat) == true) {
             markUpToDate()
-            openedVersion = OpenedVersion.SHARE
+            // Whatever the unlock opened (the offline copy, even if the share was unreachable then):
+            // the share still has this very file. Not for a vault that differs from the offline copy.
+            if (openedIsOffline) openedVersion = OpenedVersion.SHARE
             return RefreshResult.UpToDate
         }
         markOpenedVersionOutdated()
@@ -187,6 +198,7 @@ class SyncEngine(
                     store.deleteQuietly(store.download)
                     return RefreshResult.Failed(recordProblem(SyncProblem.LOCAL_STORAGE))
                 }
+                openedIsOffline = true
                 openedVersion = OpenedVersion.SHARE
                 return RefreshResult.Updated(attempt.vault)
             }
@@ -357,6 +369,7 @@ class SyncEngine(
             store.delete(store.previousOffline)
             commit(SyncState())
             openedVersion = null
+            openedIsOffline = true
         }
     }
 
@@ -375,20 +388,21 @@ class SyncEngine(
         Attempt.Failed(OpenFailure.CORRUPT)
     }
 
-    /** Candidate opened: it becomes the offline copy. Caller holds [fileLock]. */
-    private fun promoteCandidate() {
+    /** Candidate opened: it becomes the offline copy; false if it could not be moved. Caller holds [fileLock]. */
+    private fun promoteCandidate(): Boolean {
         val meta = store.validMeta(store.candidate, state.candidate)
         try {
             store.moveAtomically(store.candidate, store.offline)
         } catch (e: IOException) {
             // The vault is open anyway; the candidate is tried again at the next unlock.
             commit(state.withProblem(SyncProblem.LOCAL_STORAGE, now()))
-            return
+            return false
         }
         // Without metadata the next refresh downloads once more to learn the remote stat.
         // The new file is in place: the offline copy of a previous source is obsolete.
         store.deleteQuietly(store.previousOffline)
         commit(state.copy(offline = meta).withoutCandidate())
+        return true
     }
 
     /** Deletes the candidate; true when it is gone. Caller holds [fileLock]. */

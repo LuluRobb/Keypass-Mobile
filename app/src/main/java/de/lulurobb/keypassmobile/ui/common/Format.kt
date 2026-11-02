@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import de.lulurobb.keypassmobile.R
+import de.lulurobb.keypassmobile.model.FillTarget
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -17,6 +18,12 @@ private val DAY_MONTH = DateTimeFormatter.ofPattern("dd.MM.", GERMAN)
 private val DAY_MONTH_TIME = DateTimeFormatter.ofPattern("dd.MM., HH:mm", GERMAN)
 private val FULL_DATE = DateTimeFormatter.ofPattern("dd.MM.yyyy", GERMAN)
 private val FULL_DATE_TIME = DateTimeFormatter.ofPattern("dd.MM.yyyy, HH:mm", GERMAN)
+
+/**
+ * Name of the app the user is shown: its visible label (resolved by :autofill with PackageManager),
+ * the package name when the label could not be read.
+ */
+fun FillTarget.App.displayName(): String = appLabel ?: packageName
 
 /** "21:40" for today, "28.10., 08:12" for other days. */
 fun formatStamp(time: LocalDateTime, today: LocalDate = LocalDate.now()): String =

@@ -16,13 +16,13 @@ import java.util.UUID
  */
 class FakeSourceSetup : SourceSetupPort {
 
-    data class ConnectCall(val address: ServerAddress, val password: String?, val acceptServerGuid: UUID?)
+    data class ConnectCall(val address: ServerAddress, val password: String, val acceptServerGuid: UUID?)
 
     data class FolderCall(val share: String, val path: List<String>)
 
     data class ChooseCall(val share: String, val filePath: List<String>)
 
-    /** Results of connect() and connectWithStoredPassword(), in call order. */
+    /** Results of connect(), in call order. */
     val connectResults = ArrayDeque<ConnectResult>()
     var defaultConnect: ConnectResult = ConnectResult.Failed(ConnectError.Unknown)
     val folderResults = ArrayDeque<FolderResult>()
@@ -30,16 +30,13 @@ class FakeSourceSetup : SourceSetupPort {
     val chooseResults = ArrayDeque<ChooseResult>()
     var defaultChoose: ChooseResult = ChooseResult.Saved(fileSizeBytes = 0L, fileChanged = true, sync = SyncResult.UpToDate)
 
-    /** What [canUseStoredPassword] answers. */
-    var storedPasswordUsable = false
-
     /** Set to suspend connect() until the test completes it (busy state). */
     var connectGate: CompletableDeferred<Unit>? = null
 
     /** Set to suspend chooseFile() until the test completes it (saving state). */
     var chooseGate: CompletableDeferred<Unit>? = null
 
-    /** connect() calls; [ConnectCall.password] is null for connectWithStoredPassword(). */
+    /** connect() calls. */
     val connectCalls = mutableListOf<ConnectCall>()
     val folderCalls = mutableListOf<FolderCall>()
     val chooseCalls = mutableListOf<ChooseCall>()
@@ -49,14 +46,6 @@ class FakeSourceSetup : SourceSetupPort {
 
     override suspend fun connect(address: ServerAddress, password: CharArray, acceptServerGuid: UUID?): ConnectResult {
         connectCalls += ConnectCall(address, String(password), acceptServerGuid)
-        connectGate?.await()
-        return connectResults.removeFirstOrNull() ?: defaultConnect
-    }
-
-    override fun canUseStoredPassword(address: ServerAddress): Boolean = storedPasswordUsable
-
-    override suspend fun connectWithStoredPassword(address: ServerAddress, acceptServerGuid: UUID?): ConnectResult {
-        connectCalls += ConnectCall(address, null, acceptServerGuid)
         connectGate?.await()
         return connectResults.removeFirstOrNull() ?: defaultConnect
     }

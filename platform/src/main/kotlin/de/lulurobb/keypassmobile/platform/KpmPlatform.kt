@@ -17,6 +17,10 @@ import de.lulurobb.keypassmobile.platform.biometric.PromptResult
 import de.lulurobb.keypassmobile.platform.clipboard.ClipboardGuard
 import de.lulurobb.keypassmobile.platform.clipboard.ClipboardStatus
 import de.lulurobb.keypassmobile.platform.clipboard.CopiedValue
+import de.lulurobb.keypassmobile.platform.clipboard.FileClipboardMarkers
+import de.lulurobb.keypassmobile.platform.clipboard.KeystoreClipboardMac
+import de.lulurobb.keypassmobile.platform.clipboard.PENDING_CLEAR_FILE
+import de.lulurobb.keypassmobile.platform.clipboard.SystemClipboardAlarms
 import de.lulurobb.keypassmobile.platform.kdbx.KdbxVaultOpener
 import de.lulurobb.keypassmobile.platform.kdbx.NativeArgon2Engine
 import de.lulurobb.keypassmobile.platform.keystore.DecryptPreparation
@@ -89,7 +93,12 @@ class KpmPlatform private constructor(context: Context) {
     private val smbPasswords = SmbPasswordStore(File(keyDir, "smb-password.bin"), strongBox)
     private val connector = SmbConnector()
     private val engine = SyncEngine(File(app.noBackupFilesDir, "sync"), KdbxVaultOpener(NativeArgon2Engine()), clock)
-    private val clipboardGuard = ClipboardGuard(app, scope, elapsed)
+    private val clipboardGuard = ClipboardGuard(
+        app, scope, elapsed, clock,
+        mac = KeystoreClipboardMac(),
+        markers = FileClipboardMarkers(File(keyDir, PENDING_CLEAR_FILE)),
+        alarms = SystemClipboardAlarms(app),
+    )
     private val promptActive = AtomicBoolean(false)
 
     private val guidListener = object : ServerGuidListener {
@@ -274,8 +283,18 @@ class KpmPlatform private constructor(context: Context) {
     /** User activity (SE-02). Call on every interaction in the app and for autofill requests. */
     fun touch() = core.touch()
 
-    /** Locks if the idle time passed (e.g. in deep sleep). Call in onResume. Returns true if it locked. */
-    fun checkIdle(): Boolean = core.checkIdle()
+    /**
+     * Locks if the idle time passed (e.g. in deep sleep). Call in onResume. Returns true if it locked.
+     * Also looks at a copied value that is still pending in the clipboard (see [ClipboardStatus.Cleared]).
+     */
+    fun checkIdle(): Boolean {
+        val locked = core.checkIdle()
+        scope.launch { clipboardGuard.checkPending() }
+        return locked
+    }
+
+    /** The backup alarm of the clipboard guard fired (ClipboardClearReceiver). */
+    internal fun checkClipboard() = clipboardGuard.checkPending()
 
     /**
      * Shows "KeyPass Mobile entsperrt" (SE-03) when it is missing although the session is
@@ -390,6 +409,8 @@ class KpmPlatform private constructor(context: Context) {
     private fun start() {
         // Finishes undoing a source change that a process death interrupted; unlocks wait for it.
         scope.launch { core.recoverInterruptedSwitch() }
+        // A copied value whose countdown died with the previous process is cleared now.
+        scope.launch { clipboardGuard.checkPending() }
         UnlockedNotification.ensureChannel(app)
         if (settings.value.setupCompleted) SyncScheduler.schedule(app)
     }

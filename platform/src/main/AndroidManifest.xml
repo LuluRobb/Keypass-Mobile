@@ -37,6 +37,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Keeps the unlocked password database in memory and locks it after the configured idle time, when the app is swiped away, or on request. Clears copied credentials from the clipboard." />
         </service>
+
+        <!-- Backup of the clipboard countdown (AF-09): clears a copied value when the process died
+             before the timeout. Fired by an inexact alarm of the app itself. -->
+        <receiver
+            android:name=".clipboard.ClipboardClearReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

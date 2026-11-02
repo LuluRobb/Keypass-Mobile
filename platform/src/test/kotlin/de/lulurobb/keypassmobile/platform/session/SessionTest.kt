@@ -526,6 +526,59 @@ class SessionTest {
     }
 
     @Test
+    fun `a later sync that finds the offline copy current confirms the opened version`() = runTest {
+        seedOffline("pw", "v1")
+        remote!!.statError = RemoteException(RemoteError.UNREACHABLE)
+        val s = session()
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        assertEquals(OpenedVersion.OFFLINE_COPY, s.sync.value.status.openedVersion)
+        assertEquals(SyncProblem.UNREACHABLE, s.sync.value.status.lastProblem)
+
+        remote!!.statError = null
+        clock.advance(Duration.ofMinutes(5))
+        assertEquals(SyncResult.UpToDate, s.syncNow())
+
+        val status = s.sync.value.status
+        assertEquals(OpenedVersion.SHARE, status.openedVersion)
+        assertNull(status.lastProblem)
+        assertEquals(clock.now, status.lastSuccessfulSync)
+        // The scheduled run while unlocked confirms it as well.
+        assertEquals(SyncResult.UpToDate, s.syncNow(SyncTrigger.SCHEDULED))
+        assertEquals(OpenedVersion.SHARE, s.sync.value.status.openedVersion)
+    }
+
+    @Test
+    fun `a sync after a rejected new version does not confirm the opened version`() = runTest {
+        seedOffline("pw", "v1")
+        remote!!.publish(kdbx("new", "v2"), t0)
+        val s = session()
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        assertTrue(assertIs<SessionState.Unlocked>(s.state.value).newVersionRejected)
+
+        assertEquals(SyncResult.NewVersionRejected, s.syncNow())
+
+        assertEquals(OpenedVersion.OFFLINE_COPY, s.sync.value.status.openedVersion)
+        assertEquals(SyncProblem.NEW_VERSION_REJECTED, s.sync.value.status.lastProblem)
+    }
+
+    @Test
+    fun `a sync while locked confirms nothing`() = runTest {
+        seedOffline("pw", "v1")
+        remote!!.statError = RemoteException(RemoteError.UNREACHABLE)
+        val s = session()
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        s.lock(LockReason.User)
+        remote!!.statError = null
+
+        assertEquals(SyncResult.UpToDate, s.syncNow())
+
+        assertEquals(OpenedVersion.OFFLINE_COPY, s.sync.value.status.openedVersion)
+    }
+
+    @Test
     fun `newer version with another password sets the banner`() = runTest {
         seedOffline("pw", "v1")
         remote!!.publish(kdbx("new", "v2"), t0)

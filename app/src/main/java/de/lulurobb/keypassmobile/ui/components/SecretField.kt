@@ -102,6 +102,13 @@ class SecretInput {
         }
     }
 
+    /** Closes the keyboard and takes the focus from the field (after a submit). */
+    fun hideKeyboard() {
+        val edit = editText ?: return
+        edit.context.getSystemService(InputMethodManager::class.java)?.hideSoftInputFromWindow(edit.windowToken, 0)
+        edit.clearFocus()
+    }
+
     internal fun attach(edit: EditText) {
         editText = edit
         pending?.let {
