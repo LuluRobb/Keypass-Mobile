@@ -2,6 +2,7 @@
 # release APK and publish it as a new GitHub release (tag build-N, marked as latest).
 # The APK is named Keypass-Mobile-<versionName with dashes>.apk, e.g. Keypass-Mobile-0-1-0.apk,
 # so .../releases/latest/download/<name> always points to the newest build of a version.
+# A separate job reports the Gradle dependencies to GitHub for the Dependabot alerts.
 #
 # Secrets: KPM_KEYSTORE_BASE64 (release.jks as base64), KPM_KEYSTORE_PASSWORD
 # (store and key password, PKCS12 uses one password for both).
@@ -118,3 +119,26 @@ jobs:
             --title "Keypass Mobile $VERSION (Build $BUILD)" \
             --generate-notes \
             --latest
+
+  # Reports the resolved Gradle dependencies to GitHub so that Dependabot alerts (SE-10)
+  # also cover the version catalog and transitive dependencies. GitHub cannot read
+  # libs.versions.toml on its own. Runs in parallel and does not block the release.
+  dependencies:
+    name: Abhängigkeiten an GitHub melden
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - uses: gradle/actions/dependency-submission@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          # Open-source cache on GitHub Actions cache, not the commercial default.
+          cache-provider: basic
+          dependency-graph: generate-and-submit
