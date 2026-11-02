@@ -1,4 +1,4 @@
-# Every push to main (merged pull request): run the unit tests, build the signed
+# Every push to main: run the unit tests, build the signed
 # release APK and publish it as a new GitHub release (tag build-N, marked as latest).
 # The APK is named Keypass-Mobile-<versionName with dashes>.apk, e.g. Keypass-Mobile-0-1-0.apk,
 # so .../releases/latest/download/<name> always points to the newest build of a version.
