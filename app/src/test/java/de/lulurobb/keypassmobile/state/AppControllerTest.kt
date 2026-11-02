@@ -2,6 +2,7 @@ package de.lulurobb.keypassmobile.state
 
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.sync.SyncProblem
+import de.lulurobb.keypassmobile.platform.biometric.FingerprintAvailability
 import de.lulurobb.keypassmobile.platform.session.LockReason
 import de.lulurobb.keypassmobile.platform.session.PasswordRequiredReason
 import de.lulurobb.keypassmobile.platform.session.SyncReport
@@ -73,6 +74,9 @@ class AppControllerTest {
     private val AppController.routeNow: AppRoute get() = screen.value.route
 
     private fun AppController.unlockModel(): UnlockModel = (screen.value as AppScreen.Unlock).model
+
+    /** The lock notice on the unlock screen that is showing. */
+    private fun AppController.lockNotice(): UiMessage? = unlockModel().state.value.lockNotice
 
     private fun AppController.sourceModel(): SourceFlowModel = (screen.value as AppScreen.Source).model
 
@@ -380,19 +384,19 @@ class AppControllerTest {
     }
 
     @Test
-    fun `the lock message follows real transitions only`() = runTest {
-        // Initial locked state with a reason: no message.
+    fun `the lock reason is a notice on the unlock screen for real transitions only`() = runTest {
+        // Initial locked state with a reason: no notice.
         platform.settingsFlow.value = completed
         platform.sessionFlow.value = SessionView.Locked(LockReason.User)
         val controller = controller()
-        assertNull(controller.messages.message.value)
+        assertNull(controller.lockNotice())
 
-        // A failed unlock ends in Locked, too: no message.
+        // A failed unlock ends in Locked, too: no notice.
         platform.sessionFlow.value = SessionView.Unlocking
         runCurrent()
         platform.sessionFlow.value = SessionView.Locked(LockReason.User)
         runCurrent()
-        assertNull(controller.messages.message.value)
+        assertNull(controller.lockNotice())
 
         val expected = listOf(
             LockReason.User to UiMessage.Locked,
@@ -404,19 +408,20 @@ class AppControllerTest {
         for ((reason, message) in expected) {
             platform.sessionFlow.value = unlockedView(vault)
             runCurrent()
-            assertNull(controller.messages.message.value)
+            assertEquals(AppRoute.EntryList, controller.routeNow)
             platform.sessionFlow.value = SessionView.Locked(reason)
             runCurrent()
-            assertEquals(message, controller.messages.message.value, reason.toString())
-            controller.messages.dismiss()
+            assertEquals(message, controller.lockNotice(), reason.toString())
+            // Never a snackbar.
+            assertNull(controller.messages.message.value, reason.toString())
         }
 
-        // Swipe-away: nothing to say.
+        // Swipe-away: nothing to say, and the notice of the lock before is gone.
         platform.sessionFlow.value = unlockedView(vault)
         runCurrent()
         platform.sessionFlow.value = SessionView.Locked(LockReason.TaskRemoved)
         runCurrent()
-        assertNull(controller.messages.message.value)
+        assertNull(controller.lockNotice())
     }
 
     @Test
@@ -429,21 +434,22 @@ class AppControllerTest {
 
         platform.sessionFlow.value = SessionView.Unlocking
         runCurrent()
-        assertNull(controller.messages.message.value)
+        assertNull(controller.lockNotice())
         platform.sessionFlow.value = SessionView.Locked(LockReason.ServiceRefused)
         runCurrent()
 
-        assertEquals(UiMessage.LockedNoService, controller.messages.message.value)
+        assertEquals(UiMessage.LockedNoService, controller.lockNotice())
+        assertNull(controller.messages.message.value)
         assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
         // Like every lock: the unlock screen starts from the beginning.
         assertSame(unlock, controller.unlockModel())
         assertEquals(2, platform.calls.count { it == "unlockOffer" })
 
-        // Shown once: a settings change with the same session does not post it again.
-        controller.messages.dismiss()
+        // Shown once: a settings change with the same session does not start it again.
         platform.settingsFlow.value = completed.copy(fingerprintEnabled = true)
         runCurrent()
-        assertNull(controller.messages.message.value)
+        assertEquals(UiMessage.LockedNoService, controller.lockNotice())
+        assertEquals(2, platform.calls.count { it == "unlockOffer" })
     }
 
     @Test
@@ -452,32 +458,93 @@ class AppControllerTest {
         val controller = controller()
         platform.sessionFlow.value = SessionView.Locked(LockReason.ServiceRefused)
         runCurrent()
-        assertEquals(UiMessage.LockedNoService, controller.messages.message.value)
-        controller.messages.dismiss()
+        assertEquals(UiMessage.LockedNoService, controller.lockNotice())
 
         // Failed unlock (reason null by contract), then the same conflated lock again.
         platform.sessionFlow.value = SessionView.Unlocking
         runCurrent()
         platform.sessionFlow.value = SessionView.Locked(null)
         runCurrent()
-        assertNull(controller.messages.message.value)
+        // The failed unlock is no lock: the notice of the lock before stays.
+        assertEquals(UiMessage.LockedNoService, controller.lockNotice())
         platform.sessionFlow.value = SessionView.Locked(LockReason.ServiceRefused)
         runCurrent()
-        assertEquals(UiMessage.LockedNoService, controller.messages.message.value)
+        assertEquals(UiMessage.LockedNoService, controller.lockNotice())
     }
 
     @Test
-    fun `the state at start posts nothing, also with a reason of an earlier lock`() = runTest {
+    fun `the state at start shows no notice, also with a reason of an earlier lock`() = runTest {
         platform.settingsFlow.value = completed
         for (reason in listOf(null, LockReason.TaskRemoved, LockReason.ServiceRefused, LockReason.Idle(IdleTimeout.MINUTES_2))) {
             platform.sessionFlow.value = SessionView.Locked(reason)
             val controller = controller()
+            assertNull(controller.lockNotice(), "$reason")
             assertNull(controller.messages.message.value, "$reason")
             // A settings change while locked does not make it look new.
             platform.settingsFlow.value = platform.settingsFlow.value.copy(fingerprintEnabled = !platform.settingsFlow.value.fingerprintEnabled)
             runCurrent()
-            assertNull(controller.messages.message.value, "$reason")
+            assertNull(controller.lockNotice(), "$reason")
         }
+    }
+
+    @Test
+    fun `a lock after an app start in the unlocked state builds the unlock screen with the notice`() = runTest {
+        // The unlock model does not exist yet (autofill unlocked the session before the app started).
+        val controller = unlockedController()
+        platform.sessionFlow.value = SessionView.Locked(LockReason.Idle(IdleTimeout.MINUTES_2))
+        runCurrent()
+        assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
+        assertEquals(UiMessage.AutoLocked(120), controller.lockNotice())
+    }
+
+    @Test
+    fun `the notice goes with the successful unlock and no lock message shows up on the list`() = runTest {
+        platform.settingsFlow.value = completed
+        platform.offer = UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP)
+        val controller = controller()
+        platform.sessionFlow.value = unlockedView(vault)
+        runCurrent()
+        platform.sessionFlow.value = SessionView.Locked(LockReason.User)
+        runCurrent()
+        val unlock = controller.unlockModel()
+        assertEquals(UiMessage.Locked, unlock.state.value.lockNotice)
+
+        platform.unlockOutcomes += unlocked()
+        platform.sessionOnUnlock = unlockedView(vault)
+        unlock.submit(false, { "pw".toCharArray() }, {})
+        runCurrent()
+        assertEquals(AppRoute.EntryList, controller.routeNow)
+        assertNull(unlock.state.value.lockNotice)
+        assertNull(controller.messages.message.value)
+    }
+
+    @Test
+    fun `a lock removes a snackbar of the open session`() = runTest {
+        // "Zwischenablage gelöscht" comes with the start of a lock, possibly before the session shows Locked.
+        val controller = unlockedController()
+        controller.messages.post(UiMessage.ClipboardCleared)
+        platform.sessionFlow.value = SessionView.Locked(LockReason.User)
+        runCurrent()
+        assertNull(controller.messages.message.value)
+        assertEquals(UiMessage.Locked, controller.lockNotice())
+    }
+
+    @Test
+    fun `the notice of a lock is cleared when another source is chosen`() = runTest {
+        platform.settingsFlow.value = completed
+        platform.offer = UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP)
+        val controller = controller()
+        platform.sessionFlow.value = unlockedView(vault)
+        runCurrent()
+        platform.sessionFlow.value = SessionView.Locked(LockReason.SourceChanged)
+        runCurrent()
+        assertEquals(UiMessage.LockedSourceChanged, controller.lockNotice())
+
+        controller.chooseSource()
+        runCurrent()
+        saveChange(controller.sourceModel())
+        assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
+        assertNull(controller.lockNotice())
     }
 
     @Test
@@ -488,6 +555,11 @@ class AppControllerTest {
         controller.chooseSource()
         runCurrent()
         assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Server), controller.routeNow)
+        setup.connectResults += ConnectResult.Connected(server, null)
+        controller.sourceModel().readPassword = { "geheim".toCharArray() }
+        controller.sourceModel().onConnect()
+        runCurrent()
+        assertFalse(setup.closed)
 
         platform.sessionFlow.value = unlockedView(vault)
         runCurrent()
@@ -526,10 +598,28 @@ class AppControllerTest {
         val controller = controller()
         controller.chooseSource()
         runCurrent()
-        assertEquals(1, platform.setups.size)
-
+        // The connection opens with the first connect: until then there is nothing to close.
+        assertTrue(platform.setups.isEmpty())
         assertTrue(controller.onBack())
         runCurrent()
+        assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
+
+        // With a connection: back through the browser and the form closes it.
+        controller.chooseSource()
+        runCurrent()
+        val flow = controller.sourceModel()
+        setup.connectResults += ConnectResult.Connected(server, null)
+        flow.readPassword = { "geheim".toCharArray() }
+        flow.onConnect()
+        runCurrent()
+        assertEquals(1, platform.setups.size)
+        assertFalse(platform.setups[0].closed)
+        repeat(10) {
+            if (controller.routeNow !is AppRoute.Unlock) {
+                controller.onBack()
+                runCurrent()
+            }
+        }
         assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
         assertTrue(platform.setups[0].closed)
     }
@@ -541,6 +631,94 @@ class AppControllerTest {
         controller.chooseSource()
         runCurrent()
         assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Server), controller.routeNow)
+    }
+
+    // ---- choosing another database from the unlock screen ----
+
+    @Test
+    fun `another database can be chosen from the normal unlock screen and the unlock screen shows the new file`() = runTest {
+        platform.settingsFlow.value = completed
+        platform.offer = UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP)
+        // The password of the share is stored, the phone is locked: it must not be used.
+        setup.storedPasswordUsable = true
+        val controller = controller()
+        val unlock = controller.unlockModel()
+        assertEquals("Db.kdbx", unlock.state.value.fileName)
+
+        controller.chooseSource()
+        runCurrent()
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Server), controller.routeNow)
+        val flow = controller.sourceModel()
+        assertFalse(flow.form.value.storedPasswordUsable)
+
+        // No password typed: the empty one is sent, not the stored one.
+        setup.connectResults += ConnectResult.Connected(server, listOf(ShareEntry("Docs", "")))
+        flow.readPassword = { CharArray(0) }
+        flow.onConnect()
+        runCurrent()
+        assertEquals("", setup.connectCalls.single().password)
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Browse), controller.routeNow)
+
+        flow.onSelectFile(listOf("Docs", "Neu", "Andere.kdbx"))
+        platform.settingsFlow.value = completed.copy(source = source().copy(filePath = listOf("Neu", "Andere.kdbx")))
+        flow.onUseFile()
+        runCurrent()
+        assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
+        assertSame(unlock, controller.unlockModel())
+        assertEquals("Andere.kdbx", unlock.state.value.fileName)
+        assertEquals(2, platform.calls.count { it == "unlockOffer" })
+        assertTrue(setup.closed)
+    }
+
+    @Test
+    fun `the unlocked source change from the settings still uses the stored password`() = runTest {
+        val controller = unlockedController()
+        setup.storedPasswordUsable = true
+        controller.openSettings()
+        runCurrent()
+        controller.editSource()
+        runCurrent()
+        val flow = controller.sourceModel()
+        assertTrue(flow.form.value.storedPasswordUsable)
+        setup.connectResults += ConnectResult.Connected(server, null)
+        flow.readPassword = { CharArray(0) }
+        flow.onConnect()
+        runCurrent()
+        assertNull(setup.connectCalls.single().password)
+    }
+
+    // ---- fingerprint availability on resume ----
+
+    @Test
+    fun `the resume reads the fingerprint availability again on setup step 3`() = runTest {
+        platform.availability = FingerprintAvailability.NONE_ENROLLED
+        // Source set, setup not completed: the unlock screen is step 3.
+        platform.settingsFlow.value = KpmSettings(source = source())
+        val controller = controller()
+        assertEquals(AppRoute.Unlock(firstRun = true), controller.routeNow)
+        assertFalse(controller.unlockModel().state.value.firstRun!!.fingerprintAvailable)
+
+        // The user enrolled a fingerprint in the system settings and comes back.
+        platform.availability = FingerprintAvailability.AVAILABLE
+        controller.refreshSystem()
+        runCurrent()
+        val first = controller.unlockModel().state.value.firstRun!!
+        assertTrue(first.fingerprintAvailable)
+        assertTrue(first.fingerprintWanted)
+    }
+
+    @Test
+    fun `the resume reads the fingerprint availability again on the normal unlock screen`() = runTest {
+        platform.settingsFlow.value = completed
+        platform.offer = UnlockOffer.Password(PasswordRequiredReason.CANCELLED)
+        platform.fingerprintUsable = true
+        val controller = controller()
+        assertTrue(controller.unlockModel().state.value.fingerprintUsable)
+
+        platform.fingerprintUsable = false
+        controller.refreshSystem()
+        runCurrent()
+        assertFalse(controller.unlockModel().state.value.fingerprintUsable)
     }
 
     // ---- sync reports ----
@@ -687,6 +865,10 @@ class AppControllerTest {
         platform.offer = UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP)
         val controller = controller()
         controller.chooseSource()
+        runCurrent()
+        setup.connectResults += ConnectResult.Connected(server, null)
+        controller.sourceModel().readPassword = { "geheim".toCharArray() }
+        controller.sourceModel().onConnect()
         runCurrent()
         assertFalse(platform.setups[0].closed)
         controller.close()

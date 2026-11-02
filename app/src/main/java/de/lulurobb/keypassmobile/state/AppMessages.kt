@@ -36,13 +36,15 @@ class AppMessages {
      *   replace the countdown itself or an empty slot, so they do not wipe other
      *   messages every second.
      * - Holding then Cleared: "Zwischenablage gelöscht" once, except when the
-     *   session is locked (the lock message wins, a leftover countdown is removed).
-     * - Idle, and Cleared without a countdown seen before: nothing.
+     *   session is locked (a leftover countdown is removed).
+     * - Holding then Idle (the platform could not verify the clear): a still-shown countdown is removed, nothing is posted.
+     * - Idle otherwise, and Cleared without a countdown seen before: nothing.
      *
      * The platform clears the clipboard at the start of a lock, possibly before the
      * session state shows Locked. Then "Zwischenablage gelöscht" is posted first and the
-     * lock message replaces it. Locks without a message (swipe-away) leave it standing,
-     * harmless because the app is gone.
+     * owner dismisses it when it sees the lock (the lock reason is a notice on the unlock
+     * screen, not a message). Without that, e.g. a swipe-away, it stays standing, harmless
+     * because the app is gone.
      */
     fun bindClipboard(
         clipboard: StateFlow<ClipboardStatus>,
@@ -54,8 +56,14 @@ class AppMessages {
             val before = previous
             previous = status
             when (status) {
-                ClipboardStatus.Idle -> Unit
+                ClipboardStatus.Idle -> {
+                    // The platform gave up verifying the clear: the countdown text no longer applies, nothing replaces it.
+                    if (before is ClipboardStatus.Holding && mutableMessage.value is UiMessage.Copied) mutableMessage.value = null
+                }
                 is ClipboardStatus.Holding -> {
+                    // 0 s: the clip was cleared and the platform checks that it stays gone. No "in 0 s" text:
+                    // the countdown message stays as it is until Cleared arrives.
+                    if (status.secondsLeft <= 0) return@collect
                     val current = mutableMessage.value
                     val continuing = before is ClipboardStatus.Holding &&
                         before.value == status.value &&

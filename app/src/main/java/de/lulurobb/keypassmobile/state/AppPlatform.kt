@@ -73,6 +73,9 @@ interface AppPlatform {
     /** Locks if the idle time passed. Returns true if it locked. Call in onResume. */
     fun checkIdle(): Boolean
 
+    /** Shows the "entsperrt" notification again when it is missing and notifications are allowed now. Call in onResume. */
+    fun refreshNotification()
+
     /** Password of [id] for autofill; the caller wipes the array. Null when locked or unknown. */
     fun revealPassword(id: UUID): CharArray?
 

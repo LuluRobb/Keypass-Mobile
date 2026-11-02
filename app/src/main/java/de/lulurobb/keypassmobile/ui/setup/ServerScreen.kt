@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -21,8 +22,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -105,6 +110,18 @@ fun ServerScreen(
     onMessageDismissed: () -> Unit = {},
 ) {
     val editing = state.step == null
+    // The sticky button would cover the next fields on the small area left above the keyboard: while the
+    // keyboard is open the button is the last item of the scrolling content instead.
+    val ime = WindowInsets.ime
+    val density = LocalDensity.current
+    val keyboardOpen by remember { derivedStateOf { ime.getBottom(density) > 0 } }
+    val connectButton: @Composable () -> Unit = {
+        BigButton(
+            text = stringResource(if (state.connecting) R.string.setup_connecting else R.string.setup_connect),
+            onClick = onConnect,
+            loading = state.connecting,
+        )
+    }
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -190,13 +207,15 @@ fun ServerScreen(
                 }
                 state.error?.let { ConnectErrorNotice(it, state.host, onAcceptOtherServer) }
                 Spacer(Modifier.size(16.dp))
+                if (keyboardOpen) {
+                    connectButton()
+                    Spacer(Modifier.size(16.dp))
+                }
             }
-            Column(Modifier.padding(horizontal = ScreenPadding).padding(top = 12.dp, bottom = 24.dp)) {
-                BigButton(
-                    text = stringResource(if (state.connecting) R.string.setup_connecting else R.string.setup_connect),
-                    onClick = onConnect,
-                    loading = state.connecting,
-                )
+            if (!keyboardOpen) {
+                Column(Modifier.padding(horizontal = ScreenPadding).padding(top = 12.dp, bottom = 24.dp)) {
+                    connectButton()
+                }
             }
         }
     }

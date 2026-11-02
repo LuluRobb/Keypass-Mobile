@@ -232,6 +232,22 @@ internal class Session(
     }
 
     /**
+     * The stored value belongs to the previous file and could only fail (EN-06), so a source
+     * change to another file or server deletes it, serialized with every store like
+     * [clearStoredHash]. Neither expired nor due: the notice of an earlier expiry ends too, so the
+     * unlock screen shows plain password mode ([PasswordRequiredReason.NOT_SET_UP]) and the next
+     * typed password stores the fingerprint again when it is enabled. Idempotent (recovery repeats it).
+     */
+    private suspend fun clearStoredHashForNewSource() {
+        withContext(NonCancellable + io) {
+            fingerprintMutex.withLock {
+                hashStore.clear()
+                settings.update { it.copy(fingerprintExpired = false) }
+            }
+        }
+    }
+
+    /**
      * Sets the expired notice, unless a typed password renewed the entry time since
      * [entry] was read (that write is not under [fingerprintMutex]): the notice must
      * never outlive the password entry that ends it.
@@ -714,6 +730,7 @@ internal class Session(
         var stageCalled = false
         var candidateAdded = false
         var saved = false
+        var keepJournal = false
         try {
             try {
                 withContext(io) { journal.write(record) }
@@ -759,6 +776,15 @@ internal class Session(
                 return SourceSwitchResult.Failed(SyncProblem.LOCAL_STORAGE)
             }
             saved = true
+            if (change.differs) {
+                // Before the lock, so the unlock screen that follows already offers only the password.
+                // The journal stays until it is done: a crash in between is finished by the recovery.
+                try {
+                    clearStoredHashForNewSource()
+                } catch (_: Exception) {
+                    keepJournal = true
+                }
+            }
             if (setAside && state.value !is SessionState.Locked) lock(LockReason.SourceChanged)
             emitReport(SyncTrigger.SETUP, result)
             return SourceSwitchResult.Saved(result)
@@ -772,7 +798,7 @@ internal class Session(
                     } catch (_: Exception) {
                         // Nothing more to do.
                     }
-                    journalQuietly(null)
+                    if (!keepJournal) journalQuietly(null)
                 }
             }
             publishSync()
@@ -829,8 +855,9 @@ internal class Session(
      * died, finish undoing it (old copy back, foreign candidate deleted, and the
      * stored SMB password cleared when it may belong to the new server, so the user
      * is asked instead of a wrong password being sent). A change that had saved its
-     * source already is left as it is. Unlocks wait ([UnlockOutcome.Busy]) until
-     * this is done. No-op without a journal record.
+     * source already is left as it is, except that the stored fingerprint value of
+     * the old file is deleted again when it was cut off (see [clearStoredHashForNewSource]).
+     * Unlocks wait ([UnlockOutcome.Busy]) until this is done. No-op without a journal record.
      */
     internal suspend fun recoverInterruptedSwitch() {
         if (!recoveryPending) return
@@ -853,6 +880,12 @@ internal class Session(
                                     } catch (_: Exception) {
                                         // Best effort.
                                     }
+                                }
+                            } else if (record.differs) {
+                                try {
+                                    clearStoredHashForNewSource()
+                                } catch (_: Exception) {
+                                    // Best effort: a stale value only costs one rejected fingerprint attempt.
                                 }
                             }
                             journalQuietly(null)

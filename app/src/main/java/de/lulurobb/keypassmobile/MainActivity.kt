@@ -71,6 +71,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         vm.controller.platform.checkIdle()
+        // Notifications may have been allowed in the system settings meanwhile.
+        vm.controller.platform.refreshNotification()
         resumed = true
         // The user may come back from the system pages.
         vm.controller.refreshSystem()

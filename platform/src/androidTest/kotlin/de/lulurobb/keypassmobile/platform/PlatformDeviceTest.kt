@@ -1,6 +1,7 @@
 package de.lulurobb.keypassmobile.platform
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
@@ -12,6 +13,7 @@ import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import de.lulurobb.keypassmobile.platform.clipboard.ClipboardStatus
 import de.lulurobb.keypassmobile.platform.clipboard.CopiedValue
 import de.lulurobb.keypassmobile.platform.service.UnlockedNotification
+import de.lulurobb.keypassmobile.platform.service.UnlockedService
 import de.lulurobb.keypassmobile.platform.session.LockReason
 import de.lulurobb.keypassmobile.platform.session.SessionState
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
@@ -79,6 +81,50 @@ class PlatformDeviceTest {
             File(context.noBackupFilesDir, "sync").deleteRecursively()
         }
     }
+
+    @Test
+    fun refreshNotificationChangesNothingWhileItIsShownOrLocked() = runBlocking {
+        InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        val platform = KpmPlatform.init(context)
+        val offline = File(context.noBackupFilesDir, "sync/offline.kdbx")
+        offline.parentFile!!.mkdirs()
+        asset("argon2id-aes.kdbx").copyTo(offline, overwrite = true)
+        try {
+            // Locked: nothing to show, no service is started for it.
+            platform.refreshNotification()
+            Thread.sleep(500)
+            assertEquals(null, ourNotification())
+            assertTrue(!foregroundServiceRunning())
+
+            val outcome = platform.unlockWithPassword(TEST_DB_PASSWORD.toCharArray())
+            assertTrue("$outcome", outcome is UnlockOutcome.Unlocked)
+            assertTrue("notification shown", waitUntil { ourNotification() != null })
+
+            // Shown already (onResume of an app that was never blocked): nothing changes.
+            platform.refreshNotification()
+            Thread.sleep(500)
+            assertEquals("KeyPass Mobile entsperrt", ourNotification()!!.extras.getString(Notification.EXTRA_TITLE))
+            assertTrue(foregroundServiceRunning())
+            assertEquals(1, context.getSystemService(NotificationManager::class.java).activeNotifications.count { it.id == UnlockedNotification.NOTIFICATION_ID })
+
+            platform.lock()
+            assertTrue("notification removed", waitUntil { ourNotification() == null })
+            assertTrue(waitUntil { !foregroundServiceRunning() })
+            platform.refreshNotification()
+            Thread.sleep(500)
+            assertEquals(null, ourNotification())
+            assertTrue(!foregroundServiceRunning())
+        } finally {
+            platform.lock()
+            File(context.noBackupFilesDir, "sync").deleteRecursively()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun foregroundServiceRunning(): Boolean =
+        context.getSystemService(ActivityManager::class.java).getRunningServices(100)
+            .any { it.service.className == UnlockedService::class.java.name && it.foreground }
 
     @Test
     fun durationsAreGerman() {

@@ -84,6 +84,7 @@
     <!-- Setup, step 3 and unlock -->
     <string name="unlock_loaded_from_share">Vom Share geladen, %1$s</string>
     <string name="unlock_first_run_info">Die App speichert nicht dein Passwort, sondern einen daraus abgeleiteten Wert, den nur dein Fingerabdruck freigibt. Sie fragt %1$s wieder nach dem Master-Passwort. Das lässt sich in den Einstellungen ändern.</string>
+    <string name="unlock_first_run_info_no_fingerprint">Die App speichert nichts von deinem Passwort und fragt bei jedem Entsperren danach. Mit einem Fingerabdruck im System kannst du das später in den Einstellungen ändern.</string>
     <string name="unlock_first_run_fingerprint">Danach mit Fingerabdruck entsperren</string>
     <string name="unlock_with_fingerprint">Mit Fingerabdruck entsperren</string>
     <string name="unlock_enter_password">Master-Passwort eingeben</string>
@@ -106,6 +107,7 @@
     <string name="unlock_corrupt_title">Offline-Kopie beschädigt</string>
     <string name="unlock_corrupt_text">Die gespeicherte Kopie lässt sich nicht lesen. Hol die Datei neu vom Share oder wähl die Quelle noch einmal.</string>
     <string name="unlock_corrupt_action">Quelle neu wählen</string>
+    <string name="unlock_choose_source">Andere Datenbank wählen</string>
     <plurals name="every_n_days">
         <item quantity="one">jeden Tag</item>
         <item quantity="other">alle %d Tage</item>

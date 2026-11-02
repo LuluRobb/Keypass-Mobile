@@ -142,6 +142,10 @@ class FakeAppPlatform(
         return true
     }
 
+    override fun refreshNotification() {
+        calls += "refreshNotification"
+    }
+
     override fun revealPassword(id: UUID): CharArray? {
         calls += "revealPassword:$id"
         return passwords[id]?.toCharArray()

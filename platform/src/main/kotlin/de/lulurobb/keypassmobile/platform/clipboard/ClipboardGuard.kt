@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.nio.CharBuffer
+import java.security.MessageDigest
 
 /** What was copied (AF-09, UI-02). */
 enum class CopiedValue { USERNAME, PASSWORD }
@@ -33,11 +35,20 @@ sealed interface ClipboardStatus {
  * Clipboard as last resort (AF-09): copies with [ClipDescription.EXTRA_IS_SENSITIVE]
  * and clears after the configured time, and on lock.
  *
- * Clears only if the clip is still ours (same label and system timestamp).
  * Android lets only the focused app read the clipboard; in the background
  * (the usual case, the user pastes elsewhere) the description reads as null.
  * Then it clears anyway: leaving a password behind is worse than removing
  * something copied in the same few seconds. Clearing needs no focus.
+ *
+ * In the foreground the clip is checked: it is cleared when it still holds our
+ * value, whoever owns it now (the emulator's host clipboard sync and some keyboards
+ * put the value back under another label), and kept when it is something else.
+ * Only a digest of the value is kept for that. The result is verified, also half a
+ * second later (a restore comes asynchronously), and a clip that does not go away is
+ * cleared again: [ClipboardStatus.Cleared] is only reported once the clip no longer
+ * holds our value (or could not be read, in the background, where the clear was
+ * issued anyway). After ten fruitless looks the guard gives up and reports
+ * [ClipboardStatus.Idle].
  */
 internal class ClipboardGuard(
     context: Context,
@@ -54,6 +65,9 @@ internal class ClipboardGuard(
     private val lock = Any()
     private var holding: CopiedValue? = null
     private var ourTimestamp: Long? = null
+
+    /** SHA-256 of the copied text, to recognize it under another label; never the text itself. */
+    private var ourDigest: ByteArray? = null
     private var countdown: Job? = null
 
     /** Changes with every copy; a countdown acts only while its copy is still the current one. */
@@ -80,6 +94,7 @@ internal class ClipboardGuard(
             val mine = ++token
             holding = value
             ourTimestamp = stamp
+            ourDigest = digestOf(text)
             countdown?.cancel()
             mutableStatus.value = ClipboardStatus.Holding(value, secondsUntil(end))
             countdown = scope.launch {
@@ -102,45 +117,145 @@ internal class ClipboardGuard(
     /** Clears our clip now, if one is pending (on lock). */
     fun clearNow() = clear(onlyCopy = null)
 
-    /** Clears our clip; with [onlyCopy] only if that copy is still the current one (a stale countdown does nothing). */
+    /**
+     * Clears our clip; with [onlyCopy] only if that copy is still the current one (a stale countdown does nothing).
+     * Reports [ClipboardStatus.Cleared] when the clip is verified free of our value, or could not be read (background).
+     * If it held our value, that is checked again after a moment ([confirmClear]): something may put it back.
+     */
     private fun clear(onlyCopy: Long?) {
         synchronized(lock) {
             if (onlyCopy != null && token != onlyCopy) return
             val expected = holding ?: return
             countdown?.cancel()
             countdown = null
-            holding = null
-            val stamp = ourTimestamp
-            ourTimestamp = null
-            try {
-                val cm = manager ?: return
-                val description = try {
-                    cm.primaryClipDescription
-                } catch (_: Exception) {
-                    null
+            when (removeFromClipboard(confirming = false)) {
+                Removal.NOTHING_LEFT, Removal.UNVERIFIABLE -> finishClear(expected)
+                Removal.REMOVED, Removal.STILL_THERE -> {
+                    mutableStatus.value = ClipboardStatus.Holding(expected, 0)
+                    countdown = confirmClear(token)
                 }
-                val clear = shouldClear(
-                    readable = description != null,
-                    clipLabel = description?.label?.toString(),
-                    clipTimestamp = description?.timestamp ?: 0L,
-                    ourLabel = label,
-                    ourTimestamp = stamp,
-                )
-                if (clear) cm.clearPrimaryClip()
-            } catch (_: Exception) {
-                // Clipboard service unavailable: nothing more to do.
-            } finally {
-                mutableStatus.value = ClipboardStatus.Cleared(expected)
             }
         }
+    }
+
+    /**
+     * Looks again every half second and clears again if the value is back (a keyboard or
+     * clipboard sync that restores it), until a look finds nothing left to clear. Gives up
+     * after [MAX_CONFIRMS] looks: something outside the app keeps putting the value back, or
+     * the clipboard service fails, and retrying forever would only keep a "0 s" countdown on
+     * screen. The status is then [ClipboardStatus.Idle] (not Cleared, which would be untrue);
+     * the copy stays pending, so a lock tries once more ([clearNow]).
+     */
+    private fun confirmClear(mine: Long): Job = scope.launch {
+        var looks = 0
+        while (true) {
+            delay(CONFIRM_MILLIS)
+            synchronized(lock) {
+                if (token != mine) return@launch
+                val expected = holding ?: return@launch
+                when (removeFromClipboard(confirming = true)) {
+                    Removal.NOTHING_LEFT, Removal.UNVERIFIABLE -> {
+                        countdown = null
+                        finishClear(expected)
+                        return@launch
+                    }
+                    Removal.REMOVED, Removal.STILL_THERE -> {
+                        if (++looks >= MAX_CONFIRMS) {
+                            countdown = null
+                            mutableStatus.value = ClipboardStatus.Idle
+                            return@launch
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /** Caller holds [lock]. */
+    private fun finishClear(expected: CopiedValue) {
+        holding = null
+        ourTimestamp = null
+        ourDigest = null
+        mutableStatus.value = ClipboardStatus.Cleared(expected)
+    }
+
+    private enum class Removal {
+        /** Nothing of ours was in the clip (never, empty, or replaced by something else). */
+        NOTHING_LEFT,
+
+        /** The clip is not readable (background): the clear was issued, the result cannot be checked. */
+        UNVERIFIABLE,
+
+        /** Our value was in the clip and a look right after the clear finds it gone. */
+        REMOVED,
+
+        /** Our value is still in the clip after the clear, or the clear failed. */
+        STILL_THERE,
+    }
+
+    /**
+     * Clears the primary clip if it is ours and looks again. [confirming]: a later look after a
+     * clear, which always reads the content, so an empty clip that still carries our label and
+     * timestamp is no reason to clear again. Caller holds [lock].
+     */
+    private fun removeFromClipboard(confirming: Boolean): Removal {
+        val cm = manager ?: return Removal.NOTHING_LEFT
+        val description = try {
+            cm.primaryClipDescription
+        } catch (_: Exception) {
+            null
+        }
+        try {
+            val looksLikeOurs = description != null && description.label?.toString() == label &&
+                (ourTimestamp == null || description.timestamp == ourTimestamp)
+            // The content is read when the clip does not look like ours, or after a clear.
+            val holdsValue = if (description != null && (confirming || !looksLikeOurs)) holdsOurValue(cm) else null
+            val clear = shouldClear(
+                readable = description != null,
+                clipLabel = description?.label?.toString(),
+                clipTimestamp = description?.timestamp ?: 0L,
+                ourLabel = label,
+                ourTimestamp = ourTimestamp,
+                holdsOurValue = holdsValue,
+            )
+            if (!clear) return Removal.NOTHING_LEFT
+            cm.clearPrimaryClip()
+        } catch (_: Exception) {
+            // Clipboard service unavailable: not cleared, so not reported as cleared.
+            return Removal.STILL_THERE
+        }
+        if (description == null) return Removal.UNVERIFIABLE
+        return try {
+            if (cm.primaryClipDescription != null && holdsOurValue(cm)) Removal.STILL_THERE else Removal.REMOVED
+        } catch (_: Exception) {
+            Removal.UNVERIFIABLE
+        }
+    }
+
+    /** True when an item of the (readable) primary clip has our text. */
+    private fun holdsOurValue(cm: ClipboardManager): Boolean {
+        val digest = ourDigest ?: return false
+        val clip = cm.primaryClip ?: return false
+        for (i in 0 until clip.itemCount) {
+            val text = clip.getItemAt(i).text ?: continue
+            if (MessageDigest.isEqual(digest, digestOf(text))) return true
+        }
+        return false
     }
 
     private fun secondsUntil(end: Long): Int = ((end - elapsedMillis() + 999) / 1000).toInt().coerceAtLeast(0)
 
     internal companion object {
+        private const val CONFIRM_MILLIS = 500L
+
+        /** Looks after the first clear (5 s) before the guard stops clearing again. */
+        private const val MAX_CONFIRMS = 10
+
         /**
          * Whether to clear: always when the clip cannot be read (background or
-         * empty); otherwise only when label and system timestamp are ours.
+         * empty). [holdsOurValue] null: the content was not read, then only a clip with
+         * our label and system timestamp is cleared. Otherwise the content decides, under any
+         * label: our value is cleared, anything else (also an empty clip) stays.
          */
         fun shouldClear(
             readable: Boolean,
@@ -148,10 +263,25 @@ internal class ClipboardGuard(
             clipTimestamp: Long,
             ourLabel: String,
             ourTimestamp: Long?,
+            holdsOurValue: Boolean? = null,
         ): Boolean = when {
             !readable -> true
+            holdsOurValue != null -> holdsOurValue
             clipLabel != ourLabel -> false
             else -> ourTimestamp == null || clipTimestamp == ourTimestamp
+        }
+
+        /** SHA-256 of the UTF-8 text, without making a String of a password. */
+        fun digestOf(text: CharSequence): ByteArray {
+            val bytes = Charsets.UTF_8.encode(CharBuffer.wrap(text))
+            try {
+                return MessageDigest.getInstance("SHA-256").run {
+                    update(bytes)
+                    digest()
+                }
+            } finally {
+                if (bytes.hasArray()) bytes.array().fill(0)
+            }
         }
 
         /** Plain text clip marked sensitive, so the system hides its preview (AF-09). */

@@ -277,6 +277,19 @@ class KpmPlatform private constructor(context: Context) {
     /** Locks if the idle time passed (e.g. in deep sleep). Call in onResume. Returns true if it locked. */
     fun checkIdle(): Boolean = core.checkIdle()
 
+    /**
+     * Shows "KeyPass Mobile entsperrt" (SE-03) when it is missing although the session is
+     * unlocked and notifications are allowed now: the foreground service started while
+     * POST_NOTIFICATIONS was denied, and the user allowed it later (system settings). Call in
+     * onResume, next to [checkIdle]. Cheap and without effect when locked, when notifications
+     * are still blocked or when the notification is shown already.
+     */
+    fun refreshNotification() {
+        if (!isUnlocked() || !system.areNotificationsAllowed() || UnlockedNotification.isShown(app)) return
+        // The service posts it again with startForeground; a service that is already running just does that.
+        UnlockedService.start(app)
+    }
+
     // ---- the unlocked vault ----
 
     /** The unlocked state after an idle check, or null when locked. */

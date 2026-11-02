@@ -33,7 +33,10 @@ enum class SourceFlowMode {
     /** "Quelle ändern" from the settings while unlocked. */
     ChangeUnlocked,
 
-    /** "Quelle ändern" while locked (unlock screen). */
+    /**
+     * "Quelle ändern" while locked (unlock screen). The stored SMB password is not used here: whoever
+     * holds the locked phone must know the password to browse the share.
+     */
     ChangeLocked,
 }
 
@@ -61,6 +64,9 @@ class SourceFlowModel(
 ) : Closeable {
 
     private val changing = mode != SourceFlowMode.FirstRun
+
+    /** Only the change from the settings (unlocked) may connect with the stored SMB password. */
+    private val storedPasswordAllowed = mode == SourceFlowMode.ChangeUnlocked
 
     private var openedPort: SourceSetupPort? = null
 
@@ -98,7 +104,7 @@ class SourceFlowModel(
     private var choosing = false
 
     init {
-        if (changing) refreshStoredPassword()
+        if (storedPasswordAllowed) refreshStoredPassword()
     }
 
     // ---- server form ----
@@ -113,7 +119,10 @@ class SourceFlowModel(
 
     fun onToggleAdvanced() = mutableForm.update { it.copy(advancedOpen = !it.advancedOpen) }
 
-    /** Validates, then connects with the typed password, or with the stored one when the field is empty and it fits. */
+    /**
+     * Validates, then connects with the typed password, or, when changing the source while unlocked, with
+     * the stored one when the field is empty and it fits.
+     */
     fun onConnect() {
         val current = mutableForm.value
         if (current.connecting) return
@@ -142,7 +151,7 @@ class SourceFlowModel(
         // Another address: the server question and the last error no longer apply.
         acceptGuid = null
         mutableForm.update { change(it).copy(error = null) }
-        if (changing) refreshStoredPassword()
+        if (storedPasswordAllowed) refreshStoredPassword()
     }
 
     private fun validate(form: ServerFormState): Set<ServerField> = buildSet {
@@ -173,7 +182,7 @@ class SourceFlowModel(
         scope.launch {
             val typed = readPassword()
             val result = try {
-                if (typed.isEmpty() && changing && port.canUseStoredPassword(address)) {
+                if (typed.isEmpty() && storedPasswordAllowed && port.canUseStoredPassword(address)) {
                     port.connectWithStoredPassword(address, acceptServerGuid)
                 } else {
                     port.connect(address, typed, acceptServerGuid)

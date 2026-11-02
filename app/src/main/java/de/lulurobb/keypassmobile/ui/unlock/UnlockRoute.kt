@@ -17,7 +17,7 @@ import de.lulurobb.keypassmobile.ui.components.rememberSecretInput
  * arrived in the background. [onBack] is the back button of the first-run setup,
  * [onCancelFill] the close button of the autofill unlock; both are null where the
  * screen has none. [onChooseSource] opens the source change from the "Offline-Kopie
- * beschädigt" notice. Leaving the screen after an unlock follows the session, not this route.
+ * beschädigt" notice and from "Andere Datenbank wählen" (normal unlock only). Leaving the screen after an unlock follows the session, not this route.
  */
 @Composable
 fun UnlockRoute(

@@ -994,6 +994,149 @@ class SessionTest {
         assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
     }
 
+    // ---- the stored fingerprint value and a source change to another file ----
+
+    @Test
+    fun `a switch to another file deletes the stored value, the unlock offers only the password and stores it again`() = runTest {
+        seedOffline("old", "v1")
+        hashes.stored = "old".toByteArray()
+        // An earlier expiry notice must not be shown for the new file either.
+        val settings = MemorySettingsRepository(
+            KpmSettings(fingerprintEnabled = true, lastPasswordEntry = t0, intervalAtEntry = PasswordInterval.SEVEN_DAYS, fingerprintExpired = true),
+        )
+        val s = session(settings)
+        remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(remote!!, events)))
+
+        assertNull(hashes.stored)
+        assertEquals(1, hashes.clears)
+        assertFalse(settings.settings.value.fingerprintExpired)
+        // Not "Frist abgelaufen" and no rejected fingerprint attempt: plain password mode.
+        assertEquals(UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP), s.unlockOffer())
+        assertFalse(s.isFingerprintUsable())
+        assertTrue(settings.settings.value.fingerprintEnabled, "the switch itself stays on")
+
+        // The typed password of the new file stores the fingerprint again.
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("new".toCharArray()))
+        assertContentEquals("new".toByteArray(), hashes.stored)
+        s.lock(LockReason.User)
+        assertEquals(UnlockOffer.Fingerprint, s.unlockOffer())
+    }
+
+    @Test
+    fun `the stored value is gone before the session says Locked`() = runTest {
+        seedOffline("old", "v1")
+        hashes.stored = "old".toByteArray()
+        var storedWhenLocking: ByteArray? = ByteArray(1)
+        var storedWhenLocked: ByteArray? = ByteArray(1)
+        val recording = object : SessionEffects {
+            override fun onUnlocked() = Unit
+
+            override fun onLocking() {
+                storedWhenLocking = hashes.stored
+            }
+
+            override fun onLocked(reason: LockReason) {
+                storedWhenLocked = hashes.stored
+            }
+        }
+        val s = session(fingerprintSettings(), effects = recording)
+        s.unlockWithPassword("old".toCharArray())
+        runCurrent()
+        hashes.stored = "old".toByteArray()
+        remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+
+        s.switchSource(StubSwitch(remote!!, events))
+
+        // The unlock screen that follows the lock asks unlockOffer(): it must already see no stored value.
+        assertNull(storedWhenLocking)
+        assertNull(storedWhenLocked)
+        assertEquals(LockReason.SourceChanged, assertIs<SessionState.Locked>(s.state.value).reason)
+    }
+
+    @Test
+    fun `a switch that keeps the file or fails keeps the stored value`() = runTest {
+        seedOffline("old", "v1")
+        hashes.stored = "old".toByteArray()
+        val s = session(fingerprintSettings())
+
+        // Same file (e.g. only the credentials changed): the master password is the same.
+        val same = FakeRemote(kdbx("old", "v1"), t0.minus(Duration.ofHours(1)))
+        assertIs<SourceSwitchResult.Saved>(s.switchSource(StubSwitch(same, events, differs = false)))
+        assertContentEquals("old".toByteArray(), hashes.stored)
+
+        // A failed change to another file: nothing changed, the fingerprint still fits.
+        val other = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        assertIs<SourceSwitchResult.Failed>(s.switchSource(StubSwitch(other, events).apply { failCommit = true }))
+        assertContentEquals("old".toByteArray(), hashes.stored)
+        assertEquals(0, hashes.clears)
+        assertEquals(UnlockOffer.Fingerprint, s.unlockOffer())
+    }
+
+    @Test
+    fun `a failing deletion keeps the journal so that the restart repeats it`() = runTest {
+        seedOffline("old", "v1")
+        hashes.stored = "old".toByteArray()
+        val journal = MemoryJournal()
+        val settings = MemorySettingsRepository(KpmSettings(source = newSource, fingerprintEnabled = true))
+        val s = session(settings, journal = journal)
+        hashes.onClear = { throw IllegalStateException("keystore") }
+        remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+
+        // The change itself is saved; only the cleanup is open.
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(remote!!, events)))
+        val record = journal.record
+        assertTrue(record != null && record.differs, "the record stays")
+
+        // Next start: the source is saved, so the change is kept and only the old value is deleted.
+        hashes.onClear = null
+        val restarted = session(settings, journal = MemoryJournal(record))
+        restarted.recoverInterruptedSwitch()
+        assertNull(hashes.stored)
+        assertEquals(UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP), restarted.unlockOffer())
+    }
+
+    @Test
+    fun `restart after the source was saved but before the stored value was deleted deletes it`() = runTest {
+        val record = crashedAfterSetAside().copy(passwordTouched = true)
+        hashes.stored = "old".toByteArray()
+        val journal = MemoryJournal(record)
+        val settings = MemorySettingsRepository(KpmSettings(source = newSource, fingerprintEnabled = true, fingerprintExpired = true))
+        var cleared = 0
+        val s = session(settings, journal = journal, clearPassword = { cleared++ })
+
+        s.recoverInterruptedSwitch()
+
+        assertNull(hashes.stored)
+        assertFalse(settings.settings.value.fingerprintExpired)
+        assertEquals(0, cleared, "the SMB password belongs to the saved source")
+        assertNull(journal.record)
+        assertEquals(UnlockOffer.Password(PasswordRequiredReason.NOT_SET_UP), s.unlockOffer())
+        // Running it again changes nothing (idempotent).
+        s.recoverInterruptedSwitch()
+        assertNull(hashes.stored)
+    }
+
+    @Test
+    fun `restart after a saved change of the credentials only keeps the stored value`() = runTest {
+        val record = crashedAfterSetAside().copy(differs = false, setAside = false)
+        hashes.stored = "old".toByteArray()
+        val s = session(MemorySettingsRepository(KpmSettings(source = newSource, fingerprintEnabled = true)), journal = MemoryJournal(record))
+        s.recoverInterruptedSwitch()
+        assertContentEquals("old".toByteArray(), hashes.stored)
+    }
+
+    @Test
+    fun `restart before the commit keeps the stored value of the old file`() = runTest {
+        val record = crashedAfterSetAside()
+        hashes.stored = "old".toByteArray()
+        val s = session(MemorySettingsRepository(KpmSettings(source = oldSource, fingerprintEnabled = true)), journal = MemoryJournal(record))
+        s.recoverInterruptedSwitch()
+        assertContentEquals("old".toByteArray(), hashes.stored)
+        assertEquals(kdbx("old", "v1"), File(dir, "sync/offline.kdbx").readText())
+    }
+
     @Test
     fun `a typed password during the cleanup keeps the notice from outliving it`() = runTest {
         hashes.stored = ByteArray(32)

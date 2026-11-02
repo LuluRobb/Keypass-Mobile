@@ -11,19 +11,25 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -32,7 +38,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -84,6 +93,15 @@ class SecretInput {
         }
     }
 
+    /** Focuses the field and opens the keyboard (not for a disabled field). */
+    fun focus() {
+        val edit = editText ?: return
+        if (!edit.isEnabled) return
+        if (edit.hasFocus() || edit.requestFocus()) {
+            edit.context.getSystemService(InputMethodManager::class.java)?.showSoftInput(edit, 0)
+        }
+    }
+
     internal fun attach(edit: EditText) {
         editText = edit
         pending?.let {
@@ -123,8 +141,11 @@ fun rememberSecretInput(): SecretInput = remember { SecretInput() }
  * - sets IME_FLAG_NO_PERSONALIZED_LEARNING and TYPE_TEXT_FLAG_NO_SUGGESTIONS
  *   (no learning, no suggestions, no autocorrect, EN-01),
  * - does not save its text into the instance state.
+ *
+ * In a scrolling form the focused field is brought into view, also while the keyboard slides in
+ * and shrinks the visible area (a native view does not do that by itself).
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun SecretField(
     input: SecretInput,
@@ -152,18 +173,20 @@ fun SecretField(
         else -> EditorInfo.IME_ACTION_DONE
     }
 
-    // Tapping anywhere in the field focuses the EditText and opens the keyboard.
-    val focusEdit = {
-        input.editText?.let { edit ->
-            if (edit.isEnabled && edit.requestFocus()) {
-                edit.context.getSystemService(InputMethodManager::class.java)?.showSoftInput(edit, 0)
-            }
-        }
-        Unit
+    val bringIntoView = remember { BringIntoViewRequester() }
+    var focused by remember { mutableStateOf(false) }
+    val imeInsets = WindowInsets.ime
+    LaunchedEffect(focused) {
+        // The keyboard changes the visible area after the focus event, so ask again with every step of it.
+        if (focused) snapshotFlow { imeInsets.getBottom(density) }.collect { bringIntoView.bringIntoView() }
     }
+
+    // Tapping anywhere in the field focuses the EditText and opens the keyboard.
+    val focusEdit = { input.focus() }
     Box(
         modifier
             .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoView)
             .padding(top = 8.dp)
             .defaultMinSize(minHeight = OutlinedTextFieldDefaults.MinHeight)
             .clickable(interactionSource = null, indication = null, enabled = enabled, onClick = focusEdit),
@@ -173,7 +196,13 @@ fun SecretField(
         value = if (input.isEmpty) "" else " ",
         innerTextField = {
             AndroidView(
-                modifier = Modifier.fillMaxWidth(),
+                // The EditText measures itself, the height the decoration offers is not for it: with the error text
+                // below (supporting text) the offered maximum shrank to 0 while the keyboard slid in, and the
+                // field got 0 px height, invisible, with a dead input connection.
+                modifier = Modifier.fillMaxWidth().layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+                    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                },
                 factory = { context ->
                     NoAutofillEditText(context).apply {
                         background = null
@@ -185,8 +214,9 @@ fun SecretField(
                         hint = label
                         setHintTextColor(android.graphics.Color.TRANSPARENT)
                         var focusInteraction: FocusInteraction.Focus? = null
-                        setOnFocusChangeListener { _, focused ->
-                            if (focused) {
+                        setOnFocusChangeListener { _, hasFocus ->
+                            focused = hasFocus
+                            if (hasFocus) {
                                 focusInteraction = FocusInteraction.Focus().also { interaction.tryEmit(it) }
                             } else {
                                 focusInteraction?.let { interaction.tryEmit(FocusInteraction.Unfocus(it)) }
@@ -234,9 +264,14 @@ fun SecretField(
                     edit.setTextSize(TypedValue.COMPLEX_UNIT_SP, textStyle.fontSize.value)
                     edit.letterSpacing = textStyle.letterSpacing.value / textStyle.fontSize.value
                     edit.highlightColor = selectionColor
-                    edit.textCursorDrawable = GradientDrawable().apply {
-                        setColor(cursorColor)
-                        setSize(cursorWidth, edit.lineHeight)
+                    // Only when it changed: a new drawable on every recomposition is needless work on a focused field.
+                    val cursor = Triple(cursorColor, cursorWidth, edit.lineHeight)
+                    if (edit.cursorLook != cursor) {
+                        edit.cursorLook = cursor
+                        edit.textCursorDrawable = GradientDrawable().apply {
+                            setColor(cursorColor)
+                            setSize(cursorWidth, edit.lineHeight)
+                        }
                     }
                 },
                 // The view is released before the owner's DisposableEffect runs clear(): wipe it here, a
@@ -282,6 +317,9 @@ fun SecretField(
  * request for password fields. A view without autofill type is skipped first.
  */
 private class NoAutofillEditText(context: Context) : EditText(context) {
+    /** Color, width and height of the cursor drawable last set. */
+    var cursorLook: Triple<Int, Int, Int>? = null
+
     override fun getAutofillType(): Int = View.AUTOFILL_TYPE_NONE
 
     override fun getAutofillHints(): Array<String>? = null

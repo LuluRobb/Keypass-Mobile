@@ -46,6 +46,7 @@ import de.lulurobb.keypassmobile.ui.common.MessageHost
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.common.everyDaysText
 import de.lulurobb.keypassmobile.ui.common.formatFileSize
+import de.lulurobb.keypassmobile.ui.common.text
 import de.lulurobb.keypassmobile.ui.components.BigButton
 import de.lulurobb.keypassmobile.ui.components.BusyOverlay
 import de.lulurobb.keypassmobile.ui.components.KpmTopBar
@@ -125,6 +126,8 @@ data class UnlockState(
     val firstRun: FirstRunUnlock? = null,
     /** Set when the database cannot be opened: hides the password field and the fingerprint button. */
     val problem: UnlockProblem? = null,
+    /** Why the app was locked ("Gesperrt.", ...); shown as a notice until the next successful unlock. */
+    val lockNotice: UiMessage? = null,
 )
 
 /**
@@ -154,6 +157,12 @@ fun UnlockScreen(
     val edited by rememberUpdatedState(onPasswordEdited)
     LaunchedEffect(password) {
         snapshotFlow { password.length }.drop(1).collect { edited() }
+    }
+    // After the empty error the field has the focus and the keyboard is open, ready for the next try. Not after a wrong
+    // password: the field was disabled meanwhile and the keyboard binds to it anew, a focus request in between loses keys.
+    // Waits for the end of the busy state: a disabled field cannot take the focus.
+    LaunchedEffect(state.passwordError, state.busy) {
+        if (state.passwordError == PasswordError.Empty && !state.busy) password.focus()
     }
     Box(modifier.fillMaxSize()) {
         Scaffold(
@@ -189,19 +198,25 @@ fun UnlockScreen(
                     ) {
                         UnlockHead(state)
                         state.fillTarget?.let { FillContext(it) }
+                        state.lockNotice?.let { LockNotice(it) }
                         if (problem != null) {
                             ProblemNotice(problem, onSyncNow, onChooseSource)
                         } else {
                             ReasonNotice(state.passwordReason)
                         }
                         if (first != null) {
+                            // Follows the current availability: the fingerprint may be enrolled while the step is open.
                             Notice(
                                 tone = NoticeTone.Neutral,
                                 icon = KpmIcons.Info,
-                                text = stringResource(
-                                    R.string.unlock_first_run_info,
-                                    everyDaysText(first.passwordIntervalDays),
-                                ),
+                                text = if (first.fingerprintAvailable) {
+                                    stringResource(
+                                        R.string.unlock_first_run_info,
+                                        everyDaysText(first.passwordIntervalDays),
+                                    )
+                                } else {
+                                    stringResource(R.string.unlock_first_run_info_no_fingerprint)
+                                },
                             )
                         }
                     }
@@ -260,6 +275,13 @@ fun UnlockScreen(
                             }
                         }
                     }
+                    // Normal unlock only: not in the setup, and not in the autofill picker (the source cannot be
+                    // changed from there). The "Offline-Kopie beschädigt" notice has its own action for it.
+                    if (first == null && state.fillTarget == null && problem != UnlockProblem.Corrupt) {
+                        TextButton(onClick = onChooseSource) {
+                            Text(stringResource(R.string.unlock_choose_source))
+                        }
+                    }
                 }
             }
         }
@@ -314,6 +336,16 @@ private fun FillContext(target: FillTarget) {
             Text(text, style = MaterialTheme.typography.bodyMedium)
         }
     }
+}
+
+/** The lock message ("Gesperrt.", ...) as a notice in the style of the password reasons. */
+@Composable
+private fun LockNotice(message: UiMessage) {
+    Notice(
+        tone = NoticeTone.Warning,
+        icon = KpmIcons.Lock,
+        text = message.text(),
+    )
 }
 
 @Composable
@@ -385,3 +417,4 @@ private fun SwitchRow(text: String, checked: Boolean, onCheckedChange: (Boolean)
         Switch(checked = checked, onCheckedChange = null)
     }
 }
+

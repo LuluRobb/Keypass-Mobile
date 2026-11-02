@@ -327,6 +327,41 @@ class SourceFlowModelTest {
     }
 
     @Test
+    fun `locked change never uses the stored password, it must be typed`() {
+        // Whoever holds the locked phone must not browse the share without knowing the password.
+        setup.storedPasswordUsable = true
+        setup.connectResults += ConnectResult.Connected(server, docsShares)
+        val model = model(SourceFlowMode.ChangeLocked, source())
+        assertFalse(model.form.value.storedPasswordUsable)
+        // The stored password is not even asked for, also not after the address was edited.
+        model.onHostChange("andere-nas")
+        model.onHostChange("nas.local")
+        assertFalse(model.form.value.storedPasswordUsable)
+        assertTrue(platform.calls.none { it == "startSourceSetup" })
+
+        model.readPassword = { CharArray(0) }
+        model.onConnect()
+        val call = setup.connectCalls.single()
+        // The empty password is sent as typed; connectWithStoredPassword (password null) is not used.
+        assertEquals("", call.password)
+        assertEquals(ServerAddress("nas.local", "luca", 445, ""), call.address)
+    }
+
+    @Test
+    fun `locked change accepts another server with the typed password`() {
+        val change = ServerChange("nas.local", null, null, UUID.randomUUID(), null)
+        setup.storedPasswordUsable = true
+        setup.connectResults += ConnectResult.Failed(PlatformConnectError.OtherServer(change))
+        setup.connectResults += ConnectResult.Connected(server, docsShares)
+        val model = model(SourceFlowMode.ChangeLocked, source())
+        model.readPassword = { "geheim".toCharArray() }
+        model.onConnect()
+        model.onAcceptOtherServer()
+        assertEquals(listOf("geheim", "geheim"), setup.connectCalls.map { it.password })
+        assertEquals(change.newGuid, setup.connectCalls[1].acceptServerGuid)
+    }
+
+    @Test
     fun `without a usable stored password an empty field connects with the empty password`() {
         setup.storedPasswordUsable = false
         val model = model(SourceFlowMode.ChangeUnlocked, source())

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Window with a focused text field, like the app's search field: only a focused app may read the clipboard. -->
+        <activity
+            android:name="de.lulurobb.keypassmobile.platform.FocusedActivity"
+            android:exported="false"
+            android:windowSoftInputMode="stateAlwaysVisible" />
+    </application>
+
+</manifest>

@@ -80,6 +80,8 @@ class KpmPlatformAdapter(
 
     override fun checkIdle(): Boolean = platform.checkIdle()
 
+    override fun refreshNotification() = platform.refreshNotification()
+
     override fun revealPassword(id: UUID): CharArray? = platform.revealPassword(id)
 
     override fun copyUsername(id: UUID): Boolean = platform.copyUsername(id)

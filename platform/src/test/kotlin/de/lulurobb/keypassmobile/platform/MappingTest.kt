@@ -21,6 +21,8 @@ import de.lulurobb.keypassmobile.smb.FolderListing
 import de.lulurobb.keypassmobile.smb.SmbException
 import de.lulurobb.keypassmobile.smb.SmbServer
 import org.junit.jupiter.api.Test
+import java.nio.CharBuffer
+import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertContentEquals
@@ -165,6 +167,59 @@ class MappingTest {
         // Copied by another app, or a newer copy of our own label (e.g. the next entry).
         assertFalse(ClipboardGuard.shouldClear(readable = true, clipLabel = "other", clipTimestamp = 50, ourLabel = label, ourTimestamp = 42))
         assertFalse(ClipboardGuard.shouldClear(readable = true, clipLabel = label, clipTimestamp = 50, ourLabel = label, ourTimestamp = 42))
+    }
+
+    @Test
+    fun `clipboard with our value under another label is cleared, whoever owns it`() {
+        val label = "KeyPass Mobile"
+        // Host clipboard sync or a keyboard put the value back under its own label and timestamp.
+        assertTrue(
+            ClipboardGuard.shouldClear(
+                readable = true, clipLabel = "host clipboard", clipTimestamp = 50, ourLabel = label, ourTimestamp = 42, holdsOurValue = true,
+            ),
+        )
+        assertTrue(
+            ClipboardGuard.shouldClear(
+                readable = true, clipLabel = label, clipTimestamp = 50, ourLabel = label, ourTimestamp = 42, holdsOurValue = true,
+            ),
+        )
+        // Another value under another label stays.
+        assertFalse(
+            ClipboardGuard.shouldClear(
+                readable = true, clipLabel = "host clipboard", clipTimestamp = 50, ourLabel = label, ourTimestamp = 42, holdsOurValue = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `a clip read after the clear that holds no value stays, even with our label and timestamp`() {
+        val label = "KeyPass Mobile"
+        // An empty clip that still carries our label and timestamp must not be cleared over and over.
+        assertFalse(
+            ClipboardGuard.shouldClear(
+                readable = true, clipLabel = label, clipTimestamp = 42, ourLabel = label, ourTimestamp = 42, holdsOurValue = false,
+            ),
+        )
+        assertFalse(
+            ClipboardGuard.shouldClear(
+                readable = true, clipLabel = label, clipTimestamp = 50, ourLabel = label, ourTimestamp = null, holdsOurValue = false,
+            ),
+        )
+        // Not readable: still cleared to be safe.
+        assertTrue(
+            ClipboardGuard.shouldClear(
+                readable = false, clipLabel = null, clipTimestamp = 0, ourLabel = label, ourTimestamp = 42, holdsOurValue = null,
+            ),
+        )
+    }
+
+    @Test
+    fun `clipboard digest recognizes the same text only, also with umlauts and a CharBuffer`() {
+        val text = "Pässwörd-ß-2026 😀"
+        assertContentEquals(ClipboardGuard.digestOf(text), ClipboardGuard.digestOf(CharBuffer.wrap(text.toCharArray())))
+        assertContentEquals(MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)), ClipboardGuard.digestOf(text))
+        assertFalse(ClipboardGuard.digestOf(text).contentEquals(ClipboardGuard.digestOf("Pässwörd-ß-2027 😀")))
+        assertFalse(ClipboardGuard.digestOf(text).contentEquals(ClipboardGuard.digestOf("")))
     }
 
     @Test

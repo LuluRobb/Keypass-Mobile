@@ -48,14 +48,14 @@ class PickerViewModel(app: Application, val request: AutofillRequest) : ViewMode
     )
 
     init {
-        // The screen follows the session. Back to the start of the unlock and the reason of a
-        // lock that happened while the picker was open.
+        // The screen follows the session. Back to the start of the unlock, with the reason of a
+        // lock that happened while the picker was open as a notice there (not as a snackbar).
         viewModelScope.launch {
             val tracker = LockTracker(platform.session.value)
             platform.session.collect { session ->
                 tracker.onSession(session)?.let { locked ->
-                    unlock.reset()
-                    lockMessage(locked.reason)?.let(messages::post)
+                    messages.dismiss()
+                    unlock.reset(lockMessage(locked.reason))
                 }
             }
         }

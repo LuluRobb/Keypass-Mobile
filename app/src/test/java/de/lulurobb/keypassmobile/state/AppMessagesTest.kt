@@ -65,6 +65,50 @@ class AppMessagesTest {
     }
 
     @Test
+    fun `holding with 0 seconds keeps the last countdown and shows nothing new`() = runTest {
+        bind()
+        // Nothing before: no "in 0 s" message of its own.
+        emit(holding(PlatformCopiedValue.PASSWORD, 0))
+        assertNull(messages.message.value)
+
+        emit(holding(PlatformCopiedValue.PASSWORD, 30))
+        emit(holding(PlatformCopiedValue.PASSWORD, 1))
+        // Cleared, the platform checks that it stays gone: the message of the last second stays.
+        emit(holding(PlatformCopiedValue.PASSWORD, 0))
+        assertEquals(UiMessage.Copied(CopiedValue.Password, 1), messages.message.value)
+        emit(holding(PlatformCopiedValue.PASSWORD, 0))
+        assertEquals(UiMessage.Copied(CopiedValue.Password, 1), messages.message.value)
+
+        emit(ClipboardStatus.Cleared(PlatformCopiedValue.PASSWORD))
+        assertEquals(UiMessage.ClipboardCleared, messages.message.value)
+    }
+
+    @Test
+    fun `holding then idle removes the countdown and posts nothing`() = runTest {
+        bind()
+        emit(holding(PlatformCopiedValue.PASSWORD, 1))
+        emit(holding(PlatformCopiedValue.PASSWORD, 0))
+        assertEquals(UiMessage.Copied(CopiedValue.Password, 1), messages.message.value)
+        // The platform gave up verifying the clear.
+        emit(ClipboardStatus.Idle)
+        assertNull(messages.message.value)
+    }
+
+    @Test
+    fun `holding then idle leaves another message alone`() = runTest {
+        bind()
+        emit(holding(PlatformCopiedValue.PASSWORD, 5))
+        messages.post(UiMessage.SyncUpdated)
+        emit(ClipboardStatus.Idle)
+        assertEquals(UiMessage.SyncUpdated, messages.message.value)
+
+        // Idle without a countdown before changes nothing, either.
+        messages.post(UiMessage.Locked)
+        emit(ClipboardStatus.Idle)
+        assertEquals(UiMessage.Locked, messages.message.value)
+    }
+
+    @Test
     fun `password copy is named as password`() = runTest {
         bind()
         emit(holding(PlatformCopiedValue.PASSWORD, 15))

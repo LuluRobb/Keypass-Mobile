@@ -153,7 +153,10 @@ internal object Scenarios {
             UnlockDemo(UnlockState(FakeData.FILE, UnlockMode.Fingerprint, fingerprintUsable = true, fillTarget = FakeData.webOk), back)
         },
         Scenario("unlock-autolock", UNLOCK, "Gesperrt nach Zeit ohne Nutzung") { back ->
-            UnlockDemo(UnlockState(FakeData.FILE, UnlockMode.Fingerprint, fingerprintUsable = true), back, UiMessage.AutoLocked(120))
+            UnlockDemo(
+                UnlockState(FakeData.FILE, UnlockMode.Fingerprint, fingerprintUsable = true, lockNotice = UiMessage.AutoLocked(120)),
+                back,
+            )
         },
 
         Scenario("list", LIST, "Eintragsliste") { back -> ListDemo(back) },
@@ -286,9 +289,8 @@ private fun BrowseDemo(
 }
 
 @Composable
-private fun UnlockDemo(initial: UnlockState, back: () -> Unit, startMessage: UiMessage? = null) {
+private fun UnlockDemo(initial: UnlockState, back: () -> Unit) {
     var state by remember { mutableStateOf(initial) }
-    var message by remember { mutableStateOf(startMessage) }
     val password = rememberSecretInput()
     UnlockScreen(
         state = state,
@@ -308,8 +310,6 @@ private fun UnlockDemo(initial: UnlockState, back: () -> Unit, startMessage: UiM
         },
         onBack = back,
         onCancelFill = back,
-        message = message,
-        onMessageDismissed = { message = null },
     )
     if (state.busy && !initial.busy) {
         LaunchedEffect(Unit) {

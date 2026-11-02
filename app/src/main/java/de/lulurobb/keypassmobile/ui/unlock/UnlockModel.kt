@@ -33,7 +33,9 @@ import kotlinx.coroutines.launch
  * ([firstRun]) and the unlock of the autofill picker ([fillTarget]).
  *
  * Navigation never follows the outcomes: the screen is left when [AppPlatform.session]
- * changes, whoever unlocked. The owner calls [reset] on every transition into Locked.
+ * changes, whoever unlocked. The owner calls [reset] on every transition into Locked, with the
+ * lock message, which the screen shows as a notice until the next successful unlock ([lockNotice]
+ * builds the first one).
  */
 class UnlockModel(
     private val platform: AppPlatform,
@@ -42,12 +44,14 @@ class UnlockModel(
     private val messages: AppMessages,
     private val fillTarget: FillTarget?,
     private val firstRun: Boolean,
+    lockNotice: UiMessage? = null,
 ) {
 
     /** What the model keeps itself; [state] adds settings and session. */
     private data class Inner(
         val mode: UnlockMode,
         val fingerprintUsable: Boolean,
+        val lockNotice: UiMessage? = null,
         val reason: PasswordReason? = null,
         val error: PasswordError? = null,
         val problem: UnlockProblem? = null,
@@ -93,16 +97,17 @@ class UnlockModel(
     private var syncing = false
 
     init {
-        reset()
+        reset(lockNotice)
     }
 
     /**
      * Back to the start: asks the platform what to offer, clears the field error and the
-     * notice. Called on construction and by the owner on every transition into Locked.
+     * notices. Called on construction and by the owner on every transition into Locked, with
+     * the message of that lock ([lockNotice]; null when there is nothing to say).
      */
-    fun reset() {
+    fun reset(lockNotice: UiMessage? = null) {
         resetJob?.cancel()
-        inner.update { it.copy(error = null, problem = null, reason = null) }
+        inner.update { it.copy(error = null, problem = null, reason = null, lockNotice = lockNotice) }
         if (firstRun) {
             // Master password only; the switch needs the current availability.
             val available = fingerprintAvailableNow()
@@ -117,6 +122,23 @@ class UnlockModel(
                 }
                 is UnlockOffer.Password -> showPassword(offer.reason)
             }
+        }
+    }
+
+    /**
+     * The user may have changed the fingerprints in the system settings (call on resume). Setup step 3:
+     * the switch and the text follow the current availability. Normal unlock: "Doch mit Fingerabdruck"
+     * goes away when the fingerprint no longer works.
+     */
+    fun refreshFingerprint() {
+        if (firstRun) {
+            val available = fingerprintAvailableNow()
+            inner.update { it.copy(fingerprintAvailable = available) }
+            return
+        }
+        val usable = platform.isFingerprintUsable()
+        inner.update {
+            if (it.mode == UnlockMode.Password && it.fingerprintUsable && !usable) it.copy(fingerprintUsable = false) else it
         }
     }
 
@@ -199,6 +221,7 @@ class UnlockModel(
         when (outcome) {
             is UnlockOutcome.Unlocked -> {
                 clearInput?.invoke()
+                inner.update { it.copy(lockNotice = null) }
                 lastFingerprintStored = outcome.fingerprintRenewedForDays != null
                 val message = unlockMessage(outcome)
                 // The setup posts SetupDone instead of "Fingerabdruck ist wieder aktiv".
@@ -274,5 +297,6 @@ class UnlockModel(
                 null
             },
             problem = inner.problem,
+            lockNotice = inner.lockNotice,
         )
 }

@@ -37,8 +37,12 @@ class UnlockModelTest {
     /** How often the field was cleared. */
     private var cleared = 0
 
-    private fun TestScope.model(firstRun: Boolean = false, fillTarget: FillTarget? = null): UnlockModel {
-        val model = UnlockModel(platform, backgroundScope, testTime(), messages, fillTarget, firstRun)
+    private fun TestScope.model(
+        firstRun: Boolean = false,
+        fillTarget: FillTarget? = null,
+        lockNotice: UiMessage? = null,
+    ): UnlockModel {
+        val model = UnlockModel(platform, backgroundScope, testTime(), messages, fillTarget, firstRun, lockNotice)
         runCurrent()
         return model
     }
@@ -463,5 +467,145 @@ class UnlockModelTest {
         model.reset()
         runCurrent()
         assertNull(model.state.value.problem)
+    }
+
+    // ---- lock notice ----
+
+    @Test
+    fun `the lock notice is set by reset and replaced or cleared by the next one`() = runTest {
+        platform.offer = password(PasswordRequiredReason.NOT_SET_UP)
+        val model = model()
+        assertNull(model.state.value.lockNotice)
+
+        model.reset(UiMessage.AutoLocked(120))
+        runCurrent()
+        assertEquals(UiMessage.AutoLocked(120), model.state.value.lockNotice)
+        model.reset(UiMessage.Locked)
+        runCurrent()
+        assertEquals(UiMessage.Locked, model.state.value.lockNotice)
+        // A lock without a message (swipe-away) or a changed source shows none.
+        model.reset()
+        runCurrent()
+        assertNull(model.state.value.lockNotice)
+        // Never a snackbar.
+        assertNull(messages.message.value)
+    }
+
+    @Test
+    fun `a model built with a lock notice shows it`() = runTest {
+        val model = model(lockNotice = UiMessage.LockedNoService)
+        assertEquals(UiMessage.LockedNoService, model.state.value.lockNotice)
+    }
+
+    @Test
+    fun `the lock notice stays through wrong passwords, the fingerprint cancel and the mode switch`() = runTest {
+        platform.offer = UnlockOffer.Fingerprint
+        platform.unlockOutcomes += UnlockOutcome.WrongPassword
+        val model = model(lockNotice = UiMessage.Locked)
+        assertEquals(UnlockMode.Fingerprint, model.state.value.mode)
+        assertEquals(UiMessage.Locked, model.state.value.lockNotice)
+
+        fingerprint(model)
+        assertEquals(UnlockMode.Password, model.state.value.mode)
+        assertEquals(UiMessage.Locked, model.state.value.lockNotice)
+
+        submit(model, "")
+        submit(model, "falsch")
+        assertEquals(PasswordError.Wrong, model.state.value.passwordError)
+        assertEquals(UiMessage.Locked, model.state.value.lockNotice)
+
+        model.onUsePassword()
+        assertEquals(UiMessage.Locked, model.state.value.lockNotice)
+    }
+
+    @Test
+    fun `a successful unlock removes the lock notice, by password and by fingerprint`() = runTest {
+        platform.offer = password(PasswordRequiredReason.NOT_SET_UP)
+        platform.unlockOutcomes += unlocked()
+        val model = model(lockNotice = UiMessage.AutoLocked(60))
+        submit(model, "geheim")
+        assertNull(model.state.value.lockNotice)
+
+        platform.promptOutcomes += unlocked()
+        model.reset(UiMessage.Locked)
+        runCurrent()
+        assertEquals(UiMessage.Locked, model.state.value.lockNotice)
+        fingerprint(model)
+        assertNull(model.state.value.lockNotice)
+    }
+
+    // ---- fingerprint availability ----
+
+    @Test
+    fun `first run follows the fingerprint enrolled while the step is open`() = runTest {
+        platform.availability = FingerprintAvailability.NONE_ENROLLED
+        val model = model(firstRun = true)
+        var first = model.state.value.firstRun!!
+        assertFalse(first.fingerprintAvailable)
+        assertFalse(first.fingerprintWanted)
+
+        platform.availability = FingerprintAvailability.AVAILABLE
+        model.refreshFingerprint()
+        runCurrent()
+        first = model.state.value.firstRun!!
+        assertTrue(first.fingerprintAvailable)
+        // The user made no choice: the switch follows the availability.
+        assertTrue(first.fingerprintWanted)
+        submit(model, "geheim")
+        assertEquals(true, platform.unlockCalls.single().enableFingerprint)
+    }
+
+    @Test
+    fun `first run hides the switch again when the fingerprint is gone and keeps an explicit no`() = runTest {
+        val model = model(firstRun = true)
+        assertTrue(model.state.value.firstRun!!.fingerprintAvailable)
+
+        platform.availability = FingerprintAvailability.NONE_ENROLLED
+        model.refreshFingerprint()
+        runCurrent()
+        assertFalse(model.state.value.firstRun!!.fingerprintAvailable)
+        assertFalse(model.state.value.firstRun!!.fingerprintWanted)
+        submit(model, "eins")
+        assertEquals(false, platform.unlockCalls.last().enableFingerprint)
+
+        platform.availability = FingerprintAvailability.AVAILABLE
+        model.onFingerprintWantedChange(false)
+        model.refreshFingerprint()
+        runCurrent()
+        assertTrue(model.state.value.firstRun!!.fingerprintAvailable)
+        assertFalse(model.state.value.firstRun!!.fingerprintWanted)
+        submit(model, "zwei")
+        assertEquals(false, platform.unlockCalls.last().enableFingerprint)
+    }
+
+    @Test
+    fun `the normal unlock drops the fingerprint button when the fingerprint stopped working`() = runTest {
+        platform.offer = password(PasswordRequiredReason.CANCELLED)
+        platform.fingerprintUsable = true
+        val model = model()
+        assertTrue(model.state.value.fingerprintUsable)
+
+        model.refreshFingerprint()
+        runCurrent()
+        assertTrue(model.state.value.fingerprintUsable)
+
+        platform.fingerprintUsable = false
+        model.refreshFingerprint()
+        runCurrent()
+        assertFalse(model.state.value.fingerprintUsable)
+        assertEquals(UnlockMode.Password, model.state.value.mode)
+    }
+
+    @Test
+    fun `the normal unlock keeps the fingerprint mode on a refresh`() = runTest {
+        platform.offer = UnlockOffer.Fingerprint
+        platform.fingerprintUsable = false
+        val model = model()
+        model.refreshFingerprint()
+        runCurrent()
+        val state = model.state.value
+        assertEquals(UnlockMode.Fingerprint, state.mode)
+        assertTrue(state.fingerprintUsable)
+        assertNull(state.firstRun)
     }
 }

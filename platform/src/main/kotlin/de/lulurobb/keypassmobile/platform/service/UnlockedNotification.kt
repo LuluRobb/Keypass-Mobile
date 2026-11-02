@@ -31,6 +31,13 @@ internal object UnlockedNotification {
         manager.createNotificationChannel(channel)
     }
 
+    /** The notification is among the app's visible ones (false while notifications are blocked). */
+    fun isShown(context: Context): Boolean = try {
+        context.getSystemService(NotificationManager::class.java)?.activeNotifications.orEmpty().any { it.id == NOTIFICATION_ID }
+    } catch (_: Exception) {
+        false
+    }
+
     fun build(context: Context, idleTimeout: IdleTimeout): Notification {
         val lockIntent = PendingIntent.getService(
             context,

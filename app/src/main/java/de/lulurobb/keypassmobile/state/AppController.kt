@@ -59,8 +59,9 @@ sealed interface AppScreen {
  * run one after the other, so a callback of a model that fires during its construction
  * (settings without source, detail of a missing entry) is applied after the current step.
  *
- * Messages: one [AppMessages] for all screens, the lock message on every real
- * Unlocked -> Locked transition, and the sync reports that are not answered by a call (see [onReport]).
+ * Messages: one [AppMessages] for all screens and the sync reports that are not answered by a call
+ * (see [onReport]). The lock message of every real Unlocked -> Locked transition is not a snackbar: it
+ * goes to the unlock model, which shows it as a notice until the next successful unlock.
  */
 class AppController(
     val platform: AppPlatform,
@@ -96,6 +97,9 @@ class AppController(
 
     /** firstRun the current [unlockModel] was built with. */
     private var unlockFirstRun = false
+
+    /** Lock message for the next unlock model, when a lock found none to hand it to. */
+    private var pendingLockNotice: UiMessage? = null
     private var listModel: Owned<EntryListModel>? = null
     private val detailModels = mutableMapOf<UUID, Owned<EntryDetailModel>>()
     private var settingsModel: Owned<SettingsModel>? = null
@@ -171,10 +175,11 @@ class AppController(
         return handled
     }
 
-    /** onResume: the user may come back from the system pages. */
+    /** onResume: the user may come back from the system pages (also from the fingerprint settings). */
     fun refreshSystem() {
         settingsModel?.model?.refreshSystem()
         systemSetupModel?.refresh()
+        unlockModel?.model?.refreshFingerprint()
     }
 
     /**
@@ -251,26 +256,26 @@ class AppController(
     private fun onSession(session: SessionView) {
         // A failed unlock ends in Locked again; the unlock model shows its own result.
         val locked = lockTracker.onSession(session) ?: return
-        collapse()
-        lockMessage(locked.reason)?.let(messages::post)
+        // A message of the open session (a copy countdown, "Zwischenablage gelöscht") has no place on the unlock screen.
+        messages.dismiss()
+        collapse(lockMessage(locked.reason))
     }
 
-    /** A lock: everything back to the unlock screen, nothing of the open vault stays. */
-    private fun collapse() {
+    /** A lock: everything back to the unlock screen, nothing of the open vault stays. [lockNotice] is shown there. */
+    private fun collapse(lockNotice: UiMessage?) {
         stack.clear()
         discardInApp()
         unlockedChangeFlow?.dispose()
         unlockedChangeFlow = null
         val current = unlockModel
-        if (current != null) {
-            if (unlockFirstRun == !platform.settings.value.setupCompleted) {
-                current.model.reset()
-            } else {
-                // Built for the other mode (the setup was completed since): the next unlock screen builds a new one.
-                current.cancel()
-                unlockModel = null
-            }
+        if (current != null && unlockFirstRun == !platform.settings.value.setupCompleted) {
+            current.model.reset(lockNotice)
+            return
         }
+        // No model, or one built for the other mode (the setup was completed since): the next unlock screen builds a new one.
+        current?.cancel()
+        unlockModel = null
+        pendingLockNotice = lockNotice
     }
 
     /**
@@ -363,6 +368,7 @@ class AppController(
             firstRunFlow = null
             lockedChangeFlow?.dispose()
             lockedChangeFlow = null
+            pendingLockNotice = null
         }
         if (!hasSource && firstRunFlow == null && lockedChangeFlow == null) {
             firstRunFlow = startFlow(SourceFlowMode.FirstRun)
@@ -437,8 +443,11 @@ class AppController(
             it.cancel()
             unlockModel = null
         }
+        // The lock message belongs to the normal unlock screen; the setup step does not show it.
+        val notice = if (firstRun) null else pendingLockNotice
+        pendingLockNotice = null
         val own = childScope()
-        return Owned(UnlockModel(platform, own, time, messages, fillTarget = null, firstRun = firstRun), own).also {
+        return Owned(UnlockModel(platform, own, time, messages, fillTarget = null, firstRun = firstRun, lockNotice = notice), own).also {
             unlockModel = it
             unlockFirstRun = firstRun
         }

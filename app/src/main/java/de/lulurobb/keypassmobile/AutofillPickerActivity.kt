@@ -97,6 +97,9 @@ class AutofillPickerActivity : ComponentActivity() {
         super.onResume()
         resumed = true
         model?.platform?.checkIdle()
+        model?.platform?.refreshNotification()
+        // The user may have come back from the fingerprint settings.
+        model?.unlock?.refreshFingerprint()
     }
 
     override fun onPause() {
