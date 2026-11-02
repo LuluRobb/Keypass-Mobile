@@ -1,11 +1,12 @@
-# Every push to main: run the unit tests, build the signed
-# release APK and publish it as a new GitHub release (tag build-N, marked as latest).
+# Every push to main publishes a new GitHub release (tag build-N, marked as latest).
+# The jobs "Tests" and "APK bauen" run in parallel; "Release veröffentlichen" only runs
+# when both succeeded. "Abhängigkeiten melden" runs alongside and never blocks the release.
+#
 # The APK is named Keypass-Mobile-<versionName with dashes>.apk, e.g. Keypass-Mobile-0-1-0.apk,
 # so .../releases/latest/download/<name> always points to the newest build of a version.
-# A separate job reports the Gradle dependencies to GitHub for the Dependabot alerts.
 #
 # Secrets: KPM_KEYSTORE_BASE64 (release.jks as base64), KPM_KEYSTORE_PASSWORD
-# (store and key password, PKCS12 uses one password for both).
+# (store and key password, PKCS12 uses one password for both). Only "APK bauen" gets them.
 name: Release
 
 on:
@@ -21,28 +22,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Code auschecken
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Java 25 einrichten
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Gradle einrichten
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          # Open-source cache on GitHub Actions cache, not the commercial default.
+          cache-provider: basic
+
+      - name: Unit-Tests ausführen
+        run: ./gradlew test
+
+      - name: Testberichte hochladen
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: testberichte
+          path: "**/build/reports/tests/"
+          retention-days: 7
+
   build:
-    name: Signierte APK bauen
+    name: APK bauen
     runs-on: ubuntu-latest
     timeout-minutes: 60
     outputs:
       apk-name: ${{ steps.apk.outputs.name }}
       version: ${{ steps.apk.outputs.version }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Code auschecken
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - name: Java 25 einrichten
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "25"
 
-      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      - name: Gradle einrichten
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
           # Open-source cache on GitHub Actions cache, not the commercial default.
           cache-provider: basic
-
-      - name: Tests
-        run: ./gradlew test
 
       - name: Signierschlüssel bereitstellen
         env:
@@ -54,7 +86,7 @@ jobs:
           fi
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
 
-      - name: Release-APK bauen
+      - name: Release-APK bauen und signieren
         env:
           KPM_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
           KPM_KEYSTORE_PASSWORD: ${{ secrets.KPM_KEYSTORE_PASSWORD }}
@@ -62,16 +94,20 @@ jobs:
           KPM_KEY_PASSWORD: ${{ secrets.KPM_KEYSTORE_PASSWORD }}
         run: ./gradlew :app:assembleRelease
 
-      - name: Schlüssel entfernen
+      - name: Signierschlüssel entfernen
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
 
-      - name: Signatur prüfen und APK benennen
+      - name: Signatur prüfen
+        run: |
+          build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          "$build_tools/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
+
+      - name: APK benennen
         id: apk
         run: |
           apk=app/build/outputs/apk/release/app-release.apk
           build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
-          "$build_tools/apksigner" verify --print-certs "$apk"
           version=$("$build_tools/aapt2" dump badging "$apk" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           if [ -z "$version" ]; then
             echo "::error::versionName nicht gefunden"
@@ -80,10 +116,12 @@ jobs:
           name="Keypass-Mobile-${version//./-}.apk"
           mkdir -p dist
           cp "$apk" "dist/$name"
+          echo "APK: $name"
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: APK für das Release ablegen
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: apk
           path: dist/
@@ -92,13 +130,14 @@ jobs:
 
   release:
     name: Release veröffentlichen
-    needs: build
+    needs: [test, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: APK holen
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: apk
           path: dist
@@ -122,22 +161,25 @@ jobs:
 
   # Reports the resolved Gradle dependencies to GitHub so that Dependabot alerts (SE-10)
   # also cover the version catalog and transitive dependencies. GitHub cannot read
-  # libs.versions.toml on its own. Runs in parallel and does not block the release.
+  # libs.versions.toml on its own.
   dependencies:
-    name: Abhängigkeiten an GitHub melden
+    name: Abhängigkeiten melden
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Code auschecken
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - name: Java 25 einrichten
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: "25"
 
-      - uses: gradle/actions/dependency-submission@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+      - name: Abhängigkeiten ermitteln und an GitHub melden
+        uses: gradle/actions/dependency-submission@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
           # Open-source cache on GitHub Actions cache, not the commercial default.
           cache-provider: basic
