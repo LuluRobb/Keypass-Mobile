@@ -1,9 +1,12 @@
-# Every push to main publishes a new GitHub release (tag build-N, marked as latest).
+# Every push to main publishes a new GitHub release, marked as latest.
 # The jobs "Test" and "Build APK" run in parallel; "Publish release" only runs when
 # both succeeded. "Submit dependencies" runs alongside and never blocks the release.
 #
-# The APK is named Keypass-Mobile-<versionName with dashes>.apk, e.g. Keypass-Mobile-0-1-0.apk,
-# so .../releases/latest/download/<name> always points to the newest build of a version.
+# Versioning: the workflow run number N is passed to Gradle as KPM_BUILD_NUMBER, which
+# makes versionCode = N and versionName = <base version>.N (see app/build.gradle.kts).
+# For base version 0.1.0 and run 3: tag v0.1.0.3, title "Keypass Mobile 0.1.0.3",
+# file Keypass-Mobile-0-1-0-3.apk. Tag and versionName match, so updaters such as
+# Obtainium can compare the release with the installed app.
 #
 # Secrets: KPM_KEYSTORE_BASE64 (release.jks as base64), KPM_KEYSTORE_PASSWORD
 # (store and key password, PKCS12 uses one password for both). Only "Build APK" gets them.
@@ -92,6 +95,7 @@ jobs:
           KPM_KEYSTORE_PASSWORD: ${{ secrets.KPM_KEYSTORE_PASSWORD }}
           KPM_KEY_ALIAS: keypass-mobile
           KPM_KEY_PASSWORD: ${{ secrets.KPM_KEYSTORE_PASSWORD }}
+          KPM_BUILD_NUMBER: ${{ github.run_number }}
         run: ./gradlew :app:assembleRelease
 
       - name: Remove signing key
@@ -103,14 +107,19 @@ jobs:
           build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
           "$build_tools/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
 
-      - name: Name APK
+      - name: Check version and name APK
         id: apk
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           apk=app/build/outputs/apk/release/app-release.apk
           build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
-          version=$("$build_tools/aapt2" dump badging "$apk" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
-          if [ -z "$version" ]; then
-            echo "::error::versionName not found"
+          badging=$("$build_tools/aapt2" dump badging "$apk")
+          version=$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionName='\([^']*\)'.*/\1/p")
+          code=$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionCode='\([^']*\)'.*/\1/p")
+          echo "versionName=$version versionCode=$code"
+          if [ "$code" != "$BUILD_NUMBER" ] || [[ "$version" != *".$BUILD_NUMBER" ]]; then
+            echo "::error::APK has versionName '$version' and versionCode '$code', expected <base>.$BUILD_NUMBER and $BUILD_NUMBER"
             exit 1
           fi
           name="Keypass-Mobile-${version//./-}.apk"
@@ -146,16 +155,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: build-${{ github.run_number }}
-          BUILD: ${{ github.run_number }}
           VERSION: ${{ needs.build.outputs.version }}
           APK: dist/${{ needs.build.outputs.apk-name }}
         run: |
-          # A re-run of the same workflow run reuses its tag, so replace that release.
-          gh release delete "$TAG" --cleanup-tag --yes 2>/dev/null || true
-          gh release create "$TAG" "$APK" \
+          tag="v$VERSION"
+          # A re-run of the same workflow run keeps its run number and thus its tag,
+          # so replace that release.
+          gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$tag" "$APK" \
             --target "$GITHUB_SHA" \
-            --title "Keypass Mobile $VERSION (Build $BUILD)" \
+            --title "Keypass Mobile $VERSION" \
             --generate-notes \
             --latest
 

@@ -31,6 +31,18 @@ if (!hasReleaseSigning && releaseSigning.values.any { it != null }) {
     throw GradleException("Release signing is incomplete, missing: ${missing.joinToString()}")
 }
 
+// Versioning. The base version is maintained by hand. GitHub Actions passes the workflow
+// run number as KPM_BUILD_NUMBER: versionCode = N, versionName = <base>.N (e.g. 0.1.0.3),
+// like the BUILD part of Chromium versions. The number keeps rising across base versions.
+// Local builds have no build number: versionCode 1, versionName <base>-dev.
+val baseVersion = "0.1.0"
+val buildNumber: Int? = providers.environmentVariable("KPM_BUILD_NUMBER").orNull
+    ?.takeIf { it.isNotBlank() }
+    ?.let { raw ->
+        raw.toIntOrNull()?.takeIf { it > 0 }
+            ?: throw GradleException("KPM_BUILD_NUMBER must be a positive integer, got '$raw'")
+    }
+
 android {
     namespace = "de.lulurobb.keypassmobile"
     compileSdk = 36
@@ -39,8 +51,8 @@ android {
         applicationId = "de.lulurobb.keypassmobile"
         minSdk = 33
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = buildNumber ?: 1
+        versionName = if (buildNumber != null) "$baseVersion.$buildNumber" else "$baseVersion-dev"
     }
 
     signingConfigs {
