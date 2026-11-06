@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 108 108">
+  <!-- KeyPass Mobile logo on the adaptive icon canvas 108 x 108 dp.
+       In the app: res/drawable/ic_launcher_background.xml and res/drawable/ic_launcher_foreground.xml. -->
+  <defs>
+    <linearGradient id="verlauf" gradientUnits="userSpaceOnUse" x1="18" y1="18" x2="90" y2="90">
+      <stop offset="0" stop-color="#12384F"/>
+      <stop offset="1" stop-color="#26968A"/>
+    </linearGradient>
+  </defs>
+  <g id="hintergrund">
+    <rect width="108" height="108" fill="url(#verlauf)"/>
+  </g>
+  <g id="vordergrund">
+    <!-- Material Symbols "key", Apache License 2.0. -->
+    <g transform="translate(25.63 25.63) scale(0.0591)">
+      <path fill="#FFFFFF" d="M280,600Q330,600 365,565Q400,530 400,480Q400,430 365,395Q330,360 280,360Q230,360 195,395Q160,430 160,480Q160,530 195,565Q230,600 280,600ZM280,720Q180,720 110,650Q40,580 40,480Q40,380 110,310Q180,240 280,240Q361,240 421.5,286Q482,332 506,400L841,400L920,479L780,639L680,560L600,640L520,560L506,560Q481,632 419,676Q357,720 280,720Z"/>
+    </g>
+  </g>
+</svg>

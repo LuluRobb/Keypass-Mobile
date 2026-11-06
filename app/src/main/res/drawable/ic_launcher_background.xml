@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon background: diagonal gradient across the visible 72dp area (18..90) of the 108dp
+     adaptive canvas, so the masked icon shows both end colors. Source: design/logo/logo.svg. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <path android:pathData="M0,0H108V108H0Z">
+    <aapt:attr name="android:fillColor">
+      <gradient
+          android:type="linear"
+          android:startX="18"
+          android:startY="18"
+          android:endX="90"
+          android:endY="90"
+          android:startColor="@color/ic_launcher_gradient_start"
+          android:endColor="@color/ic_launcher_gradient_end"
+          android:tileMode="clamp" />
+    </aapt:attr>
+  </path>
+</vector>
