@@ -1,8 +1,11 @@
 package de.lulurobb.keypassmobile.ui.detail
 
 import de.lulurobb.keypassmobile.model.Vault
+import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.AppPlatform
 import de.lulurobb.keypassmobile.state.SessionView
+import de.lulurobb.keypassmobile.ui.common.CopiedValue
+import de.lulurobb.keypassmobile.ui.common.UiMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,8 +21,8 @@ class EntryDetailView(val vault: Vault, val state: EntryDetailState)
 /**
  * State holder of the copy view (UI-02, AF-09) for one entry. The entry is looked up
  * again whenever the session changes (a newer version replaces the vault); when it is
- * gone, [onMissing] is called once and [view] turns null. The copy messages come
- * from the clipboard binding of AppMessages.
+ * gone, [onMissing] is called once and [view] turns null. A successful copy posts
+ * "Benutzername kopiert" or "Passwort kopiert"; the app never clears the clipboard.
  *
  * The password is hidden by default. [onTogglePassword] reveals it (a copy of the vault's
  * characters, see [EntryDetailState.shownPassword]); the copy is wiped and dropped by
@@ -30,6 +33,7 @@ class EntryDetailModel(
     private val platform: AppPlatform,
     scope: CoroutineScope,
     private val entryId: UUID,
+    private val messages: AppMessages,
     private val onMissing: () -> Unit,
 ) {
     private class Lookup(val view: EntryDetailView?, val missing: Boolean)
@@ -48,7 +52,7 @@ class EntryDetailModel(
     init {
         scope.coroutineContext[Job]?.invokeOnCompletion { hidePassword() }
         scope.launch {
-            combine(platform.session, platform.settings, shown) { session, settings, shownPassword ->
+            combine(platform.session, shown) { session, shownPassword ->
                 val unlocked = session as? SessionView.Unlocked
                 val entry = unlocked?.vault?.entries?.firstOrNull { it.id == entryId }
                 when {
@@ -60,7 +64,6 @@ class EntryDetailModel(
                             EntryDetailState(
                                 entry = entry,
                                 rootGroupName = unlocked.vault.rootGroupName,
-                                clipboardSeconds = settings.clipboardTimeout.duration.seconds.toInt(),
                                 shownPassword = shownPassword,
                             ),
                         ),
@@ -80,11 +83,11 @@ class EntryDetailModel(
     }
 
     fun onCopyUsername() {
-        platform.copyUsername(entryId)
+        if (platform.copyUsername(entryId)) messages.post(UiMessage.Copied(CopiedValue.Username))
     }
 
     fun onCopyPassword() {
-        platform.copyPassword(entryId)
+        if (platform.copyPassword(entryId)) messages.post(UiMessage.Copied(CopiedValue.Password))
     }
 
     /** Reveals the password, or hides it again when it is shown. Nothing is shown when the vault has no password to give. */

@@ -1,5 +1,5 @@
 // Android library with the platform glue of the app: keystore and fingerprint,
-// unlocked session, foreground service (auto lock, clipboard clearing),
+// unlocked session, foreground service (auto lock), clipboard copy,
 // settings, SMB/KDBX adapters for the sync engine and the background sync worker.
 // No UI except notifications and the system fingerprint prompt; :app wires it
 // to the screens through KpmPlatform.

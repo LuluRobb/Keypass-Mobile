@@ -182,9 +182,6 @@
     <string name="settings_fingerprint_no_hardware">Dieses Gerät hat keinen geeigneten Fingerabdrucksensor.</string>
     <string name="settings_password_interval">Master-Passwort erneut nötig nach</string>
     <string name="settings_auto_lock">Automatisch sperren nach</string>
-    <string name="settings_section_clipboard">Zwischenablage</string>
-    <string name="settings_clipboard">Kopiertes löschen nach</string>
-    <string name="settings_clipboard_keyboard_hint">Manche Tastaturen, etwa die Samsung-Tastatur, behalten Kopiertes in einem eigenen Verlauf, den die App nicht löschen kann. Den Verlauf dort abschalten oder Autofill nutzen.</string>
     <string name="settings_section_system">System</string>
     <string name="settings_autofill">Autofill-Dienst</string>
     <string name="settings_autofill_on">KeyPass Mobile ist ausgewählt.</string>
@@ -233,9 +230,8 @@
     <string name="other_server_reject">Nicht übernehmen</string>
 
     <!-- Snackbar messages -->
-    <string name="msg_copied_username">Benutzername kopiert. Wird in %1$d s gelöscht.</string>
-    <string name="msg_copied_password">Passwort kopiert. Wird in %1$d s gelöscht.</string>
-    <string name="msg_clipboard_cleared">Zwischenablage gelöscht.</string>
+    <string name="msg_copied_username">Benutzername kopiert.</string>
+    <string name="msg_copied_password">Passwort kopiert.</string>
     <string name="msg_locked">Gesperrt.</string>
     <string name="msg_locked_no_service">Gesperrt: Die App konnte nicht im Hintergrund weiterlaufen.</string>
     <string name="msg_locked_source_changed">Gesperrt: Neue Datenbank gewählt. Bitte mit ihrem Master-Passwort entsperren.</string>

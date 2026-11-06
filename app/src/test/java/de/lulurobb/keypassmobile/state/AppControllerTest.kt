@@ -16,6 +16,7 @@ import de.lulurobb.keypassmobile.platform.setup.ChooseResult
 import de.lulurobb.keypassmobile.platform.setup.ConnectResult
 import de.lulurobb.keypassmobile.platform.setup.ServerInfo
 import de.lulurobb.keypassmobile.platform.setup.ShareEntry
+import de.lulurobb.keypassmobile.ui.common.CopiedValue
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.detail.EntryDetailModel
 import de.lulurobb.keypassmobile.ui.list.EntryListModel
@@ -544,9 +545,8 @@ class AppControllerTest {
 
     @Test
     fun `a lock removes a snackbar of the open session`() = runTest {
-        // "Zwischenablage gelöscht" comes with the start of a lock, possibly before the session shows Locked.
         val controller = unlockedController()
-        controller.messages.post(UiMessage.ClipboardCleared)
+        controller.messages.post(UiMessage.Copied(CopiedValue.Password))
         platform.sessionFlow.value = SessionView.Locked(LockReason.User)
         runCurrent()
         assertNull(controller.messages.message.value)

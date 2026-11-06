@@ -729,28 +729,6 @@ class SessionTest {
     }
 
     @Test
-    fun `effects hear about the lock while the session is still unlocked`() = runTest {
-        seedOffline("pw", "v1")
-        lateinit var s: Session
-        var stateAtLocking: SessionState? = null
-        val watching = object : SessionEffects {
-            override fun onUnlocked() = Unit
-
-            override fun onLocking() {
-                stateAtLocking = s.state.value
-            }
-
-            override fun onLocked(reason: LockReason) = Unit
-        }
-        s = session(effects = watching)
-        s.unlockWithPassword("pw".toCharArray())
-        runCurrent()
-        s.lock(LockReason.User)
-        assertIs<SessionState.Unlocked>(stateAtLocking)
-        assertIs<SessionState.Locked>(s.state.value)
-    }
-
-    @Test
     fun `an unlock that fails after opening the vault closes it and leaves no Unlocking state`() = runTest {
         seedOffline("pw", "v1")
         val failing = object : SettingsRepository {
@@ -1081,14 +1059,9 @@ class SessionTest {
     fun `the stored value is gone before the session says Locked`() = runTest {
         seedOffline("old", "v1")
         hashes.stored = "old".toByteArray()
-        var storedWhenLocking: ByteArray? = ByteArray(1)
         var storedWhenLocked: ByteArray? = ByteArray(1)
         val recording = object : SessionEffects {
             override fun onUnlocked() = Unit
-
-            override fun onLocking() {
-                storedWhenLocking = hashes.stored
-            }
 
             override fun onLocked(reason: LockReason) {
                 storedWhenLocked = hashes.stored
@@ -1103,7 +1076,6 @@ class SessionTest {
         s.switchSource(StubSwitch(remote!!, events))
 
         // The unlock screen that follows the lock asks unlockOffer(): it must already see no stored value.
-        assertNull(storedWhenLocking)
         assertNull(storedWhenLocked)
         assertEquals(LockReason.SourceChanged, assertIs<SessionState.Locked>(s.state.value).reason)
     }
@@ -1224,8 +1196,6 @@ class SessionTest {
         seedOffline("pw", "v1")
         val throwing = object : SessionEffects {
             override fun onUnlocked() = Unit
-
-            override fun onLocking() = throw IllegalStateException("clipboard")
 
             override fun onLocked(reason: LockReason) = throw IllegalStateException("service")
         }

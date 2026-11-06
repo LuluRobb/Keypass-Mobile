@@ -1,6 +1,5 @@
 package de.lulurobb.keypassmobile.state
 
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import de.lulurobb.keypassmobile.platform.biometric.FingerprintAvailability as PlatformFingerprintAvailability
@@ -36,16 +35,6 @@ class SettingsMappingTest {
         assertEquals(listOf(30, 60, 120, 300), IdleTimeout.entries.map { it.seconds })
         assertEquals(IdleTimeout.entries.map { it.seconds }, SettingsState.AutoLockTimes)
         assertNull(idleTimeoutOf(45))
-    }
-
-    @Test
-    fun `clipboard timeout round trips over the seconds of the screen`() {
-        for (timeout in ClipboardTimeout.entries) {
-            assertEquals(timeout, clipboardTimeoutOf(timeout.seconds))
-        }
-        assertEquals(listOf(15, 30, 60), ClipboardTimeout.entries.map { it.seconds })
-        assertEquals(ClipboardTimeout.entries.map { it.seconds }, SettingsState.ClipboardTimes)
-        assertNull(clipboardTimeoutOf(20))
     }
 
     @Test

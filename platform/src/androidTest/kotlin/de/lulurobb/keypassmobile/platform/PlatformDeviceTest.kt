@@ -7,11 +7,8 @@ import android.app.NotificationManager
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
-import de.lulurobb.keypassmobile.platform.clipboard.ClipboardStatus
-import de.lulurobb.keypassmobile.platform.clipboard.CopiedValue
 import de.lulurobb.keypassmobile.platform.service.UnlockedNotification
 import de.lulurobb.keypassmobile.platform.service.UnlockedService
 import de.lulurobb.keypassmobile.platform.session.LockReason
@@ -23,6 +20,7 @@ import de.lulurobb.keypassmobile.platform.settings.SourceConfig
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,7 +29,7 @@ import java.io.File
 import java.time.Instant
 import java.util.UUID
 
-/** The facade with its foreground service, notification and clipboard on the device. */
+/** The facade with its foreground service, notification and copying on the device. */
 @RunWith(AndroidJUnit4::class)
 class PlatformDeviceTest {
 
@@ -40,7 +38,7 @@ class PlatformDeviceTest {
             .firstOrNull { it.id == UnlockedNotification.NOTIFICATION_ID }?.notification
 
     @Test
-    fun foregroundServiceNotificationAndClipboardWhileUnlocked() = runBlocking {
+    fun foregroundServiceNotificationAndCopyWhileUnlocked() = runBlocking {
         InstrumentationRegistry.getInstrumentation().uiAutomation
             .grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
         val platform = KpmPlatform.init(context)
@@ -59,23 +57,21 @@ class PlatformDeviceTest {
             assertEquals("Sperren", notification.actions.single().title.toString())
             assertTrue(platform.system.areNotificationsAllowed())
 
-            // AF-09: copy, countdown, cleared on lock.
+            // AF-09: copying works while unlocked.
             val entry = platform.unlocked()!!.vault.entries.first()
             assertTrue(platform.copyUsername(entry.id))
-            val holding = platform.clipboard.value
-            assertTrue("$holding", holding is ClipboardStatus.Holding && holding.value == CopiedValue.USERNAME && holding.secondsLeft in 29..30)
+            assertTrue(platform.copyPassword(entry.id))
             assertNotNull(platform.revealPassword(entry.id))
 
             // "Sperren" in the notification locks and removes the notification.
             notification.actions.single().actionIntent.send()
             assertTrue(waitUntil { platform.session.value is SessionState.Locked })
             assertEquals(LockReason.Notification, (platform.session.value as SessionState.Locked).reason)
-            assertTrue(
-                "clipboard cleared: ${platform.clipboard.value}",
-                waitUntil { platform.clipboard.value == ClipboardStatus.Cleared(CopiedValue.USERNAME) },
-            )
             assertTrue("notification removed", waitUntil { ourNotification() == null })
             assertEquals(null, platform.revealPassword(entry.id))
+            // Locked: nothing can be copied any more.
+            assertFalse(platform.copyUsername(entry.id))
+            assertFalse(platform.copyPassword(entry.id))
         } finally {
             platform.lock()
             File(context.noBackupFilesDir, "sync").deleteRecursively()
@@ -145,7 +141,6 @@ class PlatformDeviceTest {
             fingerprintEnabled = true,
             passwordInterval = PasswordInterval.THREE_DAYS,
             idleTimeout = IdleTimeout.SECONDS_30,
-            clipboardTimeout = ClipboardTimeout.SECONDS_60,
             setupCompleted = true,
             lastPasswordEntry = Instant.ofEpochMilli(1_761_990_000_123),
             intervalAtEntry = PasswordInterval.FOURTEEN_DAYS,

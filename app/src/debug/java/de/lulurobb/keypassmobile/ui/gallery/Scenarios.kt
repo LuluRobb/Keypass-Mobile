@@ -193,7 +193,7 @@ internal object Scenarios {
 
         Scenario("detail", APP, "Kopier-Ansicht") { back -> DetailDemo("paypal", back) },
         Scenario("detail-http", APP, "Kopier-Ansicht: Router über HTTP, kopiert") { back ->
-            DetailDemo("fritz", back, UiMessage.Copied(CopiedValue.Password, 27))
+            DetailDemo("fritz", back, UiMessage.Copied(CopiedValue.Password))
         },
         Scenario("detail-custom", APP, "Kopier-Ansicht: eigenes Icon") { back -> DetailDemo("netflix", back) },
         Scenario("settings", APP, "Einstellungen") { back -> SettingsDemo(back) },
@@ -413,23 +413,15 @@ private fun DetailDemo(entry: VaultEntry, onBack: () -> Unit, message: UiMessage
     val icons = remember { EntryIcons(FakeData.customIcons) }
     var msg by remember { mutableStateOf(message) }
     EntryDetailScreen(
-        state = EntryDetailState(entry, FakeData.ROOT, clipboardSeconds = 30),
+        state = EntryDetailState(entry, FakeData.ROOT),
         icons = icons,
         onBack = onBack,
         onLock = onBack,
-        onCopyUsername = { msg = UiMessage.Copied(CopiedValue.Username, 30) },
-        onCopyPassword = { msg = UiMessage.Copied(CopiedValue.Password, 30) },
+        onCopyUsername = { msg = UiMessage.Copied(CopiedValue.Username) },
+        onCopyPassword = { msg = UiMessage.Copied(CopiedValue.Password) },
         message = msg,
         onMessageDismissed = { msg = null },
     )
-    // Countdown as the real app does it: update every second, then the "cleared" message.
-    val copied = msg as? UiMessage.Copied
-    if (copied != null) {
-        LaunchedEffect(copied) {
-            delay(1000)
-            msg = if (copied.secondsLeft > 1) copied.copy(secondsLeft = copied.secondsLeft - 1) else UiMessage.ClipboardCleared
-        }
-    }
 }
 
 @Composable
@@ -449,7 +441,6 @@ private fun SettingsDemo(back: () -> Unit, offline: Boolean = false, syncing: Bo
                 passwordDueOn = LocalDate.now().plusDays(6),
                 passwordIntervalDays = 7,
                 autoLockSeconds = 120,
-                clipboardSeconds = 30,
                 autofillSelected = true,
                 notificationsAllowed = !offline,
                 versionName = "0.1.0",
@@ -464,7 +455,6 @@ private fun SettingsDemo(back: () -> Unit, offline: Boolean = false, syncing: Bo
         onFingerprintChange = { state = state.copy(fingerprintEnabled = it) },
         onPasswordIntervalChange = { state = state.copy(passwordIntervalDays = it, passwordDueOn = LocalDate.now().plusDays(it.toLong())) },
         onAutoLockChange = { state = state.copy(autoLockSeconds = it) },
-        onClipboardChange = { state = state.copy(clipboardSeconds = it) },
         onOpenAutofillSettings = {},
         onOpenNotificationSettings = { state = state.copy(notificationsAllowed = true) },
     )

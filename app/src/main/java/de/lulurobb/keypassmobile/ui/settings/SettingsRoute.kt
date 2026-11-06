@@ -30,7 +30,6 @@ fun SettingsRoute(
             onFingerprintChange = model::onFingerprintChange,
             onPasswordIntervalChange = model::onPasswordIntervalChange,
             onAutoLockChange = model::onAutoLockChange,
-            onClipboardChange = model::onClipboardChange,
             onOpenAutofillSettings = onOpenAutofillSettings,
             onOpenNotificationSettings = onOpenNotificationSettings,
             message = message,

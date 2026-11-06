@@ -1,6 +1,5 @@
 package de.lulurobb.keypassmobile.state
 
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import de.lulurobb.keypassmobile.platform.biometric.FingerprintAvailability as PlatformFingerprintAvailability
@@ -21,12 +20,7 @@ fun passwordIntervalOf(days: Int): PasswordInterval? = PasswordInterval.entries.
 /** The timeout of [seconds] (30, 60, 120, 300), null for any other number. */
 fun idleTimeoutOf(seconds: Int): IdleTimeout? = IdleTimeout.entries.firstOrNull { it.seconds == seconds }
 
-/** The timeout of [seconds] (15, 30, 60), null for any other number. */
-fun clipboardTimeoutOf(seconds: Int): ClipboardTimeout? = ClipboardTimeout.entries.firstOrNull { it.seconds == seconds }
-
 val IdleTimeout.seconds: Int get() = duration.seconds.toInt()
-
-val ClipboardTimeout.seconds: Int get() = duration.seconds.toInt()
 
 fun PlatformFingerprintAvailability.toUi(): FingerprintAvailability = when (this) {
     PlatformFingerprintAvailability.AVAILABLE -> FingerprintAvailability.Available

@@ -3,12 +3,10 @@ package de.lulurobb.keypassmobile.state
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import de.lulurobb.keypassmobile.platform.KpmPlatform
 import de.lulurobb.keypassmobile.platform.biometric.FingerprintAvailability
-import de.lulurobb.keypassmobile.platform.clipboard.ClipboardStatus
 import de.lulurobb.keypassmobile.platform.session.FingerprintSetupResult
 import de.lulurobb.keypassmobile.platform.session.PasswordRequiredReason
 import de.lulurobb.keypassmobile.platform.session.SessionState
@@ -55,7 +53,6 @@ class KpmPlatformAdapter(
 
     override val sync: StateFlow<SyncInfo> = platform.sync
 
-    override val clipboard: StateFlow<ClipboardStatus> = platform.clipboard
 
     override val lastSyncReport: StateFlow<SyncReport?> = platform.lastSyncReport
 
@@ -98,7 +95,6 @@ class KpmPlatformAdapter(
 
     override fun setIdleTimeout(v: IdleTimeout) = platform.setIdleTimeout(v)
 
-    override fun setClipboardTimeout(v: ClipboardTimeout) = platform.setClipboardTimeout(v)
 
     override fun passwordDueAt(): Instant? = platform.passwordDueAt()
 

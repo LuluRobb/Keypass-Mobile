@@ -1,12 +1,10 @@
 package de.lulurobb.keypassmobile.state
 
 import de.lulurobb.keypassmobile.core.index.EntryIndex
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import de.lulurobb.keypassmobile.model.Vault
 import de.lulurobb.keypassmobile.platform.biometric.FingerprintAvailability
-import de.lulurobb.keypassmobile.platform.clipboard.ClipboardStatus
 import de.lulurobb.keypassmobile.platform.session.FingerprintSetupResult
 import de.lulurobb.keypassmobile.platform.session.LockReason
 import de.lulurobb.keypassmobile.platform.session.SyncInfo
@@ -41,9 +39,6 @@ interface AppPlatform {
 
     /** Sync status, running flag and a pending server question. */
     val sync: StateFlow<SyncInfo>
-
-    /** Clipboard countdown. */
-    val clipboard: StateFlow<ClipboardStatus>
 
     /**
      * The newest finished sync run (after unlock, requested, scheduled, setup), null before
@@ -96,8 +91,6 @@ interface AppPlatform {
     fun setPasswordInterval(v: PasswordInterval)
 
     fun setIdleTimeout(v: IdleTimeout)
-
-    fun setClipboardTimeout(v: ClipboardTimeout)
 
     /** When the master password is due again; null when the fingerprint is off or never stored. */
     fun passwordDueAt(): Instant?

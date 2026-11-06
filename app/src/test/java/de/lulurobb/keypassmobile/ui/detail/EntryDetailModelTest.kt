@@ -1,12 +1,14 @@
 package de.lulurobb.keypassmobile.ui.detail
 
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.platform.session.LockReason
+import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.FakeAppPlatform
 import de.lulurobb.keypassmobile.state.SessionView
 import de.lulurobb.keypassmobile.state.testEntry
 import de.lulurobb.keypassmobile.state.testVault
 import de.lulurobb.keypassmobile.state.unlockedView
+import de.lulurobb.keypassmobile.ui.common.CopiedValue
+import de.lulurobb.keypassmobile.ui.common.UiMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -29,30 +31,22 @@ class EntryDetailModelTest {
     private val paypal = testEntry("PayPal", username = "anna")
     private val bank = testEntry("Bank")
     private val platform = FakeAppPlatform(session = unlockedView(testVault(listOf(paypal, bank), rootName = "Meine DB")))
+    private val messages = AppMessages()
     private var missing = 0
 
     private fun TestScope.model(id: UUID = paypal.id): EntryDetailModel {
-        val model = EntryDetailModel(platform, backgroundScope, id) { missing++ }
+        val model = EntryDetailModel(platform, backgroundScope, id, messages) { missing++ }
         runCurrent()
         return model
     }
 
     @Test
-    fun `finds the entry by id with root name and clipboard seconds`() = runTest {
+    fun `finds the entry by id with root name`() = runTest {
         val model = model()
         val state = assertNotNull(model.view.value).state
         assertSame(paypal, state.entry)
         assertEquals("Meine DB", state.rootGroupName)
-        assertEquals(ClipboardTimeout.DEFAULT.duration.seconds.toInt(), state.clipboardSeconds)
         assertEquals(0, missing)
-    }
-
-    @Test
-    fun `clipboard seconds follow the setting`() = runTest {
-        val model = model()
-        platform.settingsFlow.value = platform.settingsFlow.value.copy(clipboardTimeout = ClipboardTimeout.SECONDS_60)
-        runCurrent()
-        assertEquals(60, assertNotNull(model.view.value).state.clipboardSeconds)
     }
 
     @Test
@@ -179,7 +173,7 @@ class EntryDetailModelTest {
     fun `leaving the screen ends the scope and wipes the password`() = runTest {
         platform.passwords[paypal.id] = "geheim"
         val own = CoroutineScope(backgroundScope.coroutineContext + SupervisorJob(backgroundScope.coroutineContext[Job]))
-        val model = EntryDetailModel(platform, own, paypal.id) { missing++ }
+        val model = EntryDetailModel(platform, own, paypal.id, messages) { missing++ }
         runCurrent()
         model.onTogglePassword()
         runCurrent()
@@ -199,5 +193,23 @@ class EntryDetailModelTest {
             listOf("copyUsername:${paypal.id}", "copyPassword:${paypal.id}", "lock"),
             platform.calls,
         )
+    }
+
+    @Test
+    fun `a copy posts what was copied`() = runTest {
+        val model = model()
+        model.onCopyUsername()
+        assertEquals(UiMessage.Copied(CopiedValue.Username), messages.message.value)
+        model.onCopyPassword()
+        assertEquals(UiMessage.Copied(CopiedValue.Password), messages.message.value)
+    }
+
+    @Test
+    fun `a failed copy posts nothing`() = runTest {
+        platform.copyResult = false
+        val model = model()
+        model.onCopyUsername()
+        model.onCopyPassword()
+        assertNull(messages.message.value)
     }
 }

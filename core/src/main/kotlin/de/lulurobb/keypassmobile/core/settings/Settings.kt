@@ -39,20 +39,5 @@ enum class IdleTimeout(val duration: Duration) {
     }
 }
 
-/** Time until a copied username or password is cleared from the clipboard (AF-09), default 30 seconds. */
-enum class ClipboardTimeout(val duration: Duration) {
-    SECONDS_15(Duration.ofSeconds(15)),
-    SECONDS_30(Duration.ofSeconds(30)),
-    SECONDS_60(Duration.ofSeconds(60)),
-    ;
-
-    companion object {
-        val DEFAULT = SECONDS_30
-
-        /** The value stored as [name], or [DEFAULT] for null or unknown names. */
-        fun fromName(name: String?): ClipboardTimeout = entries.firstOrNull { it.name == name } ?: DEFAULT
-    }
-}
-
 /** Interval of the periodic background sync (SY-06). Fixed, not a setting. */
 val BACKGROUND_SYNC_INTERVAL: Duration = Duration.ofHours(4)

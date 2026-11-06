@@ -3,13 +3,10 @@ package de.lulurobb.keypassmobile.state
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.sync.CandidateRejection
 import de.lulurobb.keypassmobile.core.sync.SyncProblem
-import de.lulurobb.keypassmobile.platform.clipboard.ClipboardStatus
-import de.lulurobb.keypassmobile.platform.clipboard.CopiedValue as PlatformCopiedValue
 import de.lulurobb.keypassmobile.platform.session.FingerprintSetupResult
 import de.lulurobb.keypassmobile.platform.session.LockReason
 import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
-import de.lulurobb.keypassmobile.ui.common.CopiedValue
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -54,21 +51,6 @@ class MessageMappingTest {
             )
         }
         assertEquals(UiMessage.AutoLocked(120), lockMessage(LockReason.Idle(IdleTimeout.MINUTES_2)))
-    }
-
-    @Test
-    fun `clipboard states map to the countdown and the end note`() {
-        assertNull(clipboardMessage(ClipboardStatus.Idle))
-        assertEquals(
-            UiMessage.Copied(CopiedValue.Username, 30),
-            clipboardMessage(ClipboardStatus.Holding(PlatformCopiedValue.USERNAME, 30)),
-        )
-        assertEquals(
-            UiMessage.Copied(CopiedValue.Password, 7),
-            clipboardMessage(ClipboardStatus.Holding(PlatformCopiedValue.PASSWORD, 7)),
-        )
-        assertEquals(UiMessage.ClipboardCleared, clipboardMessage(ClipboardStatus.Cleared(PlatformCopiedValue.USERNAME)))
-        assertEquals(UiMessage.ClipboardCleared, clipboardMessage(ClipboardStatus.Cleared(PlatformCopiedValue.PASSWORD)))
     }
 
     @Test

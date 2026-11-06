@@ -1,6 +1,5 @@
 package de.lulurobb.keypassmobile.ui.settings
 
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import de.lulurobb.keypassmobile.core.sync.OpenedVersion
@@ -41,8 +40,6 @@ class SettingsModelTest {
 
     private val idle120 = IdleTimeout.entries.first { it.duration.seconds == 120L }
     private val idle300 = IdleTimeout.entries.first { it.duration.seconds == 300L }
-    private val clipboard15 = ClipboardTimeout.entries.first { it.duration.seconds == 15L }
-    private val clipboard60 = ClipboardTimeout.entries.first { it.duration.seconds == 60L }
 
     private val platform = FakeAppPlatform(
         settings = KpmSettings(source = source, trustedServer = TrustedServer(sambaGuid, since)),
@@ -62,7 +59,6 @@ class SettingsModelTest {
             fingerprintEnabled = true,
             passwordInterval = PasswordInterval.THREE_DAYS,
             idleTimeout = idle120,
-            clipboardTimeout = clipboard15,
         )
         platform.dueAt = Instant.parse("2026-11-05T08:00:00Z")
         platform.autofillSelected = true
@@ -79,7 +75,6 @@ class SettingsModelTest {
         assertEquals(LocalDate.of(2026, 11, 5), s.passwordDueOn)
         assertEquals(3, s.passwordIntervalDays)
         assertEquals(120, s.autoLockSeconds)
-        assertEquals(15, s.clipboardSeconds)
         assertEquals(true, s.autofillSelected)
         assertEquals(true, s.notificationsAllowed)
         assertEquals("0.1.0-test", s.versionName)
@@ -177,15 +172,13 @@ class SettingsModelTest {
         val model = model()
         model.onPasswordIntervalChange(14)
         model.onAutoLockChange(300)
-        model.onClipboardChange(60)
         assertEquals(
-            listOf("setPasswordInterval:FOURTEEN_DAYS", "setIdleTimeout:$idle300", "setClipboardTimeout:$clipboard60"),
+            listOf("setPasswordInterval:FOURTEEN_DAYS", "setIdleTimeout:$idle300"),
             platform.calls,
         )
         val s = model.current()
         assertEquals(14, s.passwordIntervalDays)
         assertEquals(300, s.autoLockSeconds)
-        assertEquals(60, s.clipboardSeconds)
     }
 
     @Test
@@ -193,7 +186,6 @@ class SettingsModelTest {
         val model = model()
         model.onPasswordIntervalChange(5)
         model.onAutoLockChange(45)
-        model.onClipboardChange(99)
         assertEquals(emptyList(), platform.calls)
     }
 

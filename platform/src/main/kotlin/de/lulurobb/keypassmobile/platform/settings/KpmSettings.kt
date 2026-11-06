@@ -1,6 +1,5 @@
 package de.lulurobb.keypassmobile.platform.settings
 
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import kotlinx.coroutines.flow.StateFlow
@@ -69,7 +68,6 @@ data class KpmSettings(
     val fingerprintEnabled: Boolean = false,
     val passwordInterval: PasswordInterval = PasswordInterval.DEFAULT,
     val idleTimeout: IdleTimeout = IdleTimeout.DEFAULT,
-    val clipboardTimeout: ClipboardTimeout = ClipboardTimeout.DEFAULT,
     /** The first-run setup was finished (source chosen, unlocked once, system hints shown). */
     val setupCompleted: Boolean = false,
     /** Last time the master password was typed and opened the database (EN-05). */

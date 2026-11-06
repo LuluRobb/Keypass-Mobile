@@ -1,10 +1,8 @@
 package de.lulurobb.keypassmobile.state
 
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import de.lulurobb.keypassmobile.platform.biometric.FingerprintAvailability
-import de.lulurobb.keypassmobile.platform.clipboard.ClipboardStatus
 import de.lulurobb.keypassmobile.platform.session.FingerprintSetupResult
 import de.lulurobb.keypassmobile.platform.session.LockReason
 import de.lulurobb.keypassmobile.platform.session.PasswordRequiredReason
@@ -38,13 +36,11 @@ class FakeAppPlatform(
     val settingsFlow = MutableStateFlow(settings)
     val sessionFlow = MutableStateFlow(session)
     val syncFlow = MutableStateFlow(sync)
-    val clipboardFlow = MutableStateFlow<ClipboardStatus>(ClipboardStatus.Idle)
     val lastReportFlow = MutableStateFlow<SyncReport?>(null)
 
     override val settings: StateFlow<KpmSettings> = settingsFlow
     override val session: StateFlow<SessionView> = sessionFlow
     override val sync: StateFlow<SyncInfo> = syncFlow
-    override val clipboard: StateFlow<ClipboardStatus> = clipboardFlow
     override val lastSyncReport: StateFlow<SyncReport?> = lastReportFlow
 
     // ---- scripts ----
@@ -190,11 +186,6 @@ class FakeAppPlatform(
     override fun setIdleTimeout(v: IdleTimeout) {
         calls += "setIdleTimeout:$v"
         settingsFlow.value = settingsFlow.value.copy(idleTimeout = v)
-    }
-
-    override fun setClipboardTimeout(v: ClipboardTimeout) {
-        calls += "setClipboardTimeout:$v"
-        settingsFlow.value = settingsFlow.value.copy(clipboardTimeout = v)
     }
 
     override fun passwordDueAt(): Instant? = dueAt

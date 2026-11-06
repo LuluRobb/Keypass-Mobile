@@ -5,7 +5,6 @@ import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.AppPlatform
 import de.lulurobb.keypassmobile.state.SessionView
 import de.lulurobb.keypassmobile.state.TimeSource
-import de.lulurobb.keypassmobile.state.clipboardTimeoutOf
 import de.lulurobb.keypassmobile.state.fingerprintSetupMessage
 import de.lulurobb.keypassmobile.state.idleTimeoutOf
 import de.lulurobb.keypassmobile.state.passwordIntervalOf
@@ -84,13 +83,6 @@ class SettingsModel(
         recompute()
     }
 
-    /** Unknown values are ignored. */
-    fun onClipboardChange(seconds: Int) {
-        val timeout = clipboardTimeoutOf(seconds) ?: return
-        platform.setClipboardTimeout(timeout)
-        recompute()
-    }
-
     fun onSyncNow() {
         scope.launch {
             syncResultMessage(platform.syncNow())?.let(messages::post)
@@ -125,7 +117,6 @@ class SettingsModel(
             passwordDueOn = platform.passwordDueAt()?.let { time.local(it).toLocalDate() },
             passwordIntervalDays = settings.passwordInterval.days,
             autoLockSeconds = settings.idleTimeout.seconds,
-            clipboardSeconds = settings.clipboardTimeout.seconds,
             autofillSelected = autofillSelected,
             notificationsAllowed = notificationsAllowed,
             versionName = platform.versionName,

@@ -1,13 +1,10 @@
 package de.lulurobb.keypassmobile.state
 
 import de.lulurobb.keypassmobile.core.sync.SyncProblem
-import de.lulurobb.keypassmobile.platform.clipboard.ClipboardStatus
-import de.lulurobb.keypassmobile.platform.clipboard.CopiedValue as PlatformCopiedValue
 import de.lulurobb.keypassmobile.platform.session.FingerprintSetupResult
 import de.lulurobb.keypassmobile.platform.session.LockReason
 import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
-import de.lulurobb.keypassmobile.ui.common.CopiedValue
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 
 /*
@@ -72,16 +69,4 @@ fun fingerprintSetupMessage(result: FingerprintSetupResult): UiMessage? = when (
     -> null
     FingerprintSetupResult.ON_NEXT_PASSWORD -> UiMessage.FingerprintOnNextPassword
     FingerprintSetupResult.FAILED -> UiMessage.FingerprintStoreFailed
-}
-
-/** Snackbar for a clipboard state: the countdown while holding, the end note when cleared, nothing when idle. */
-fun clipboardMessage(status: ClipboardStatus): UiMessage? = when (status) {
-    ClipboardStatus.Idle -> null
-    is ClipboardStatus.Holding -> UiMessage.Copied(status.value.toUi(), status.secondsLeft)
-    is ClipboardStatus.Cleared -> UiMessage.ClipboardCleared
-}
-
-internal fun PlatformCopiedValue.toUi(): CopiedValue = when (this) {
-    PlatformCopiedValue.USERNAME -> CopiedValue.Username
-    PlatformCopiedValue.PASSWORD -> CopiedValue.Password
 }

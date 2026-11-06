@@ -68,7 +68,6 @@ data class SettingsState(
     val passwordDueOn: LocalDate?,
     val passwordIntervalDays: Int,
     val autoLockSeconds: Int,
-    val clipboardSeconds: Int,
     val autofillSelected: Boolean,
     val notificationsAllowed: Boolean,
     val versionName: String,
@@ -76,11 +75,10 @@ data class SettingsState(
     companion object {
         val PasswordIntervals = listOf(1, 3, 7, 14)
         val AutoLockTimes = listOf(30, 60, 120, 300)
-        val ClipboardTimes = listOf(15, 30, 60)
     }
 }
 
-/** Settings (UI-03, DS-01, SY-07, SY-08, EN-05, SE-02, AF-09). Every control saves itself. */
+/** Settings (UI-03, DS-01, SY-07, SY-08, EN-05, SE-02). Every control saves itself. */
 @Composable
 fun SettingsScreen(
     state: SettingsState,
@@ -90,7 +88,6 @@ fun SettingsScreen(
     onFingerprintChange: (Boolean) -> Unit,
     onPasswordIntervalChange: (Int) -> Unit,
     onAutoLockChange: (Int) -> Unit,
-    onClipboardChange: (Int) -> Unit,
     onOpenAutofillSettings: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     modifier: Modifier = Modifier,
@@ -218,22 +215,6 @@ fun SettingsScreen(
                 label = {
                     if (it < 60) stringResource(R.string.seconds_short, it) else stringResource(R.string.minutes_short, it / 60)
                 },
-            )
-
-            SectionLabel(stringResource(R.string.settings_section_clipboard))
-            SettingsRow(icon = KpmIcons.Copy, title = stringResource(R.string.settings_clipboard))
-            ChoiceRow(
-                options = SettingsState.ClipboardTimes,
-                selected = state.clipboardSeconds,
-                onSelect = onClipboardChange,
-                label = { stringResource(R.string.seconds_short, it) },
-            )
-            // Keyboard clipboard histories ignore the sensitive flag and the deletion.
-            Text(
-                stringResource(R.string.settings_clipboard_keyboard_hint),
-                modifier = Modifier.padding(start = ScreenPadding + 40.dp, end = ScreenPadding, top = 4.dp, bottom = 8.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onSurfaceVariant,
             )
 
             SectionLabel(stringResource(R.string.settings_section_system))

@@ -24,13 +24,11 @@ import kotlinx.coroutines.delay
 /**
  * Short feedback shown as a snackbar at the bottom of a screen. Screens take
  * `message: UiMessage?` and `onMessageDismissed`; set the message to show it,
- * the screen calls `onMessageDismissed` when it times out (except [Copied],
- * whose countdown the caller drives and replaces with [ClipboardCleared]).
+ * the screen calls `onMessageDismissed` when it times out.
  */
 sealed interface UiMessage {
-    /** Copied value with countdown. Update [secondsLeft] every second. */
-    data class Copied(val value: CopiedValue, val secondsLeft: Int) : UiMessage
-    data object ClipboardCleared : UiMessage
+    /** A username or password was copied (AF-09). The app never clears the clipboard. */
+    data class Copied(val value: CopiedValue) : UiMessage
     data object Locked : UiMessage
     /** Locked because the foreground service was refused (SE-03); unlock again with the app in front. */
     data object LockedNoService : UiMessage
@@ -67,9 +65,7 @@ enum class CopiedValue { Username, Password }
 fun UiMessage.text(): String = when (this) {
     is UiMessage.Copied -> stringResource(
         if (value == CopiedValue.Username) R.string.msg_copied_username else R.string.msg_copied_password,
-        secondsLeft,
     )
-    UiMessage.ClipboardCleared -> stringResource(R.string.msg_clipboard_cleared)
     UiMessage.Locked -> stringResource(R.string.msg_locked)
     UiMessage.LockedNoService -> stringResource(R.string.msg_locked_no_service)
     UiMessage.LockedSourceChanged -> stringResource(R.string.msg_locked_source_changed)
@@ -109,7 +105,7 @@ private fun UiMessage.isLong(): Boolean = when (this) {
 
 /**
  * Snackbar host for [UiMessage]. Put it into the Scaffold's snackbarHost slot.
- * The text updates in place, so a countdown does not flicker.
+ * The text updates in place when a message replaces another.
  */
 @Composable
 fun MessageHost(message: UiMessage?, onDismissed: () -> Unit, modifier: Modifier = Modifier) {
@@ -119,7 +115,7 @@ fun MessageHost(message: UiMessage?, onDismissed: () -> Unit, modifier: Modifier
     if (message != null) last[0] = message
     val shown = last[0]
     LaunchedEffect(message) {
-        if (message == null || message is UiMessage.Copied) return@LaunchedEffect
+        if (message == null) return@LaunchedEffect
         delay(if (message.isLong()) LONG_MESSAGE_MILLIS else MESSAGE_MILLIS)
         dismiss()
     }

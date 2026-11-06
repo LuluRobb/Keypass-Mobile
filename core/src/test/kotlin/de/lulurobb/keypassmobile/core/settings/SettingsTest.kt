@@ -19,9 +19,6 @@ class SettingsTest {
         assertEquals(listOf(30L, 60L, 120L, 300L), IdleTimeout.entries.map { it.duration.seconds })
         assertEquals(IdleTimeout.MINUTES_2, IdleTimeout.DEFAULT)
 
-        assertEquals(listOf(15L, 30L, 60L), ClipboardTimeout.entries.map { it.duration.seconds })
-        assertEquals(ClipboardTimeout.SECONDS_30, ClipboardTimeout.DEFAULT)
-
         assertEquals(Duration.ofHours(4), BACKGROUND_SYNC_INTERVAL)
     }
 
@@ -30,7 +27,6 @@ class SettingsTest {
         assertEquals(PasswordInterval.THREE_DAYS, PasswordInterval.fromName("THREE_DAYS"))
         assertEquals(PasswordInterval.DEFAULT, PasswordInterval.fromName(null))
         assertEquals(IdleTimeout.DEFAULT, IdleTimeout.fromName("TEN_HOURS"))
-        assertEquals(ClipboardTimeout.SECONDS_60, ClipboardTimeout.fromName("SECONDS_60"))
     }
 }
 

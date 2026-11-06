@@ -47,8 +47,6 @@ import de.lulurobb.keypassmobile.ui.icons.KpmIcons
 data class EntryDetailState(
     val entry: VaultEntry,
     val rootGroupName: String,
-    /** Seconds until copied values are cleared (AF-09). */
-    val clipboardSeconds: Int,
     /**
      * The revealed password, null while hidden. The model owns and wipes the array; the screen only
      * reads it while it is shown.

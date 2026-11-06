@@ -124,7 +124,6 @@ class AppController(
         started = true
         drain()
         running = false
-        messages.bindClipboard(platform.clipboard, platform.session, scope)
         scope.launch {
             combine(platform.session, platform.settings) { session, _ -> session }
                 .collect { session -> act { onSession(session) } }
@@ -258,7 +257,7 @@ class AppController(
     private fun onSession(session: SessionView) {
         // A failed unlock ends in Locked again; the unlock model shows its own result.
         val locked = lockTracker.onSession(session) ?: return
-        // A message of the open session (a copy countdown, "Zwischenablage gelöscht") has no place on the unlock screen.
+        // A message of the open session (e.g. "Passwort kopiert") has no place on the unlock screen.
         messages.dismiss()
         collapse(lockMessage(locked.reason))
     }
@@ -411,7 +410,7 @@ class AppController(
             for (id in ids) {
                 if (id !in detailModels) {
                     val own = childScope()
-                    detailModels[id] = Owned(EntryDetailModel(platform, own, id) { act { stack.remove(InAppScreen.Detail(id)) } }, own)
+                    detailModels[id] = Owned(EntryDetailModel(platform, own, id, messages) { act { stack.remove(InAppScreen.Detail(id)) } }, own)
                 }
             }
             if (InAppScreen.Settings !in stack) {

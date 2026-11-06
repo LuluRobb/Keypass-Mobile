@@ -25,9 +25,6 @@ internal object KeySpecs {
     /** Key of the stored SMB password (DS-03). */
     const val SMB_KEY_ALIAS = "kpm_smb_password_aes"
 
-    /** HMAC key of the clipboard marker: recognizes a copied value without storing a hash that could be guessed offline. */
-    const val CLIPBOARD_KEY_ALIAS = "kpm_clipboard_marker"
-
     const val RSA_KEY_SIZE = 2048
     const val RSA_TRANSFORMATION = "RSA/ECB/OAEPPadding"
     const val AES_KEY_SIZE = 256
@@ -81,15 +78,6 @@ internal object KeySpecs {
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setRandomizedEncryptionRequired(true)
             .apply { if (strongBox) setIsStrongBoxBacked(true) }
-            .build()
-
-    /**
-     * HMAC-SHA256 key for the clipboard marker. Not exportable, usable without user
-     * authentication (the marker is checked while locked, from the alarm).
-     */
-    fun clipboardMacSpec(alias: String): KeyGenParameterSpec =
-        KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
-            .setDigests(KeyProperties.DIGEST_SHA256)
             .build()
 
     fun keyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }

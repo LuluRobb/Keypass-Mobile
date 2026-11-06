@@ -22,8 +22,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Foreground service while unlocked (SE-03), type specialUse. It keeps the
- * process out of the cached-app freezer, so the idle lock (SE-02) and the
- * clipboard clearing (AF-09) of the platform keep running in the background,
+ * process out of the cached-app freezer, so the idle lock (SE-02) of the
+ * platform keeps running in the background,
  * locks when the app is swiped away (SE-01) and when the screen turns on
  * after the idle time passed in deep sleep. Shows "KeyPass Mobile entsperrt"
  * with "Sperren".

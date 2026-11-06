@@ -2,7 +2,6 @@ package de.lulurobb.keypassmobile.platform.settings
 
 import android.content.Context
 import android.content.SharedPreferences
-import de.lulurobb.keypassmobile.core.settings.ClipboardTimeout
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,7 +50,6 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
         private const val LAST_ENTRY = "unlock.lastPasswordEntry"
         private const val INTERVAL_AT_ENTRY = "unlock.intervalAtEntry"
         private const val IDLE = "lock.idleTimeout"
-        private const val CLIPBOARD = "clipboard.timeout"
         private const val SETUP_DONE = "setup.completed"
         private const val FINGERPRINT_EXPIRED = "unlock.fingerprintExpired"
 
@@ -83,7 +81,6 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
                 fingerprintEnabled = p.getBoolean(FINGERPRINT, false),
                 passwordInterval = PasswordInterval.fromName(p.getString(INTERVAL, null)),
                 idleTimeout = IdleTimeout.fromName(p.getString(IDLE, null)),
-                clipboardTimeout = ClipboardTimeout.fromName(p.getString(CLIPBOARD, null)),
                 setupCompleted = p.getBoolean(SETUP_DONE, false),
                 fingerprintExpired = p.getBoolean(FINGERPRINT_EXPIRED, false),
                 lastPasswordEntry = if (p.contains(LAST_ENTRY)) Instant.ofEpochMilli(p.getLong(LAST_ENTRY, 0)) else null,
@@ -112,7 +109,6 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
             e.putBoolean(FINGERPRINT, s.fingerprintEnabled)
             e.putString(INTERVAL, s.passwordInterval.name)
             e.putString(IDLE, s.idleTimeout.name)
-            e.putString(CLIPBOARD, s.clipboardTimeout.name)
             e.putBoolean(SETUP_DONE, s.setupCompleted)
             e.putBoolean(FINGERPRINT_EXPIRED, s.fingerprintExpired)
             if (s.lastPasswordEntry == null) e.remove(LAST_ENTRY) else e.putLong(LAST_ENTRY, s.lastPasswordEntry.toEpochMilli())

@@ -50,14 +50,12 @@ fun interface RemoteFactory {
     fun open(): RemoteHandle?
 }
 
-/** Android side effects of state changes (foreground service, clipboard). */
+/** Android side effects of state changes (foreground service). */
 interface SessionEffects {
     fun onUnlocked()
 
-    /** The session is about to lock; still unlocked. Clear secrets outside the session (clipboard) here. */
-    fun onLocking() = Unit
-
-    fun onLocked(reason: LockReason)
+    /** The state says Locked already. */
+    fun onLocked(reason: LockReason) = Unit
 }
 
 /**
@@ -483,18 +481,10 @@ internal class Session(
 
     /**
      * Locks: closes the vault, drops the index, overwrites the hash, cancels
-     * the idle timer; the effects clear our clipboard content and stop the
-     * foreground service. Safe from any thread; no-op when already locked.
+     * the idle timer. The foreground service sees the state and stops itself.
+     * Safe from any thread; no-op when already locked.
      */
     fun lock(reason: LockReason) {
-        // Secrets outside the session (clipboard) go first, before the state says Locked.
-        if (mutableState.value !is SessionState.Locked) {
-            try {
-                effects.onLocking()
-            } catch (_: Exception) {
-                // The lock must happen whatever the effects do.
-            }
-        }
         val vault: Vault?
         synchronized(stateLock) {
             val current = mutableState.value
@@ -520,7 +510,7 @@ internal class Session(
         publishSync()
     }
 
-    /** Marks user activity (SE-02): app actions, autofill requests, clipboard copies. */
+    /** Marks user activity (SE-02): app actions, autofill requests, copies. */
     fun touch() {
         lastActivity = elapsedMillis()
     }
