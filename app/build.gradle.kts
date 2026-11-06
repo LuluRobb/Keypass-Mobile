@@ -51,6 +51,7 @@ android {
         applicationId = "de.lulurobb.keypassmobile"
         minSdk = 33
         targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = buildNumber ?: 1
         versionName = if (buildNumber != null) "$baseVersion.$buildNumber" else "$baseVersion-dev"
     }
@@ -104,6 +105,14 @@ dependencies {
     implementation(libs.androidx.activity.compose)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+    // Instrumented Compose tests (app/src/androidTest). The manifest artifact only registers
+    // the empty ComponentActivity that createComposeRule needs, so it is debug-only.
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.junit4)
 
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)

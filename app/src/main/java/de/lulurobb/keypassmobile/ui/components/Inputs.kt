@@ -19,15 +19,35 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.editableText
+import androidx.compose.ui.semantics.error
+import androidx.compose.ui.semantics.focused
+import androidx.compose.ui.semantics.isEditable
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.onImeAction
+import androidx.compose.ui.semantics.requestFocus
+import androidx.compose.ui.semantics.setText
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -64,6 +84,64 @@ fun NoKeyboardLearning(content: @Composable () -> Unit) {
     )
 }
 
+/**
+ * Modifier for a Compose text field that must never reach a third-party autofill
+ * service. Compose 1.11 reports every text field that carries SemanticsActions.OnFillData
+ * (foundation sets it on all text fields) to the AutofillManager, including its content,
+ * and the window-level importantForAutofill has no effect on it. [clearAndSetSemantics]
+ * drops all semantics of the field's layout node, so the field has no fill data, no
+ * autofill text action and no content type any more.
+ *
+ * It sits right behind the caller's [modifier] in the chain. The semantics of a layout node
+ * are calculated from the tail to the head and reset when a clearing modifier is met, so
+ * everything behind it (the text field's own semantics and the decoration of the Material
+ * field) is dropped, while semantics in [modifier] (for example a test tag) are kept.
+ *
+ * Clearing also wipes the accessibility semantics, including the descendants (label and
+ * supporting text of the Material field), so the essentials are added back here: label
+ * and [helper] as the content description, value, editable, enabled and focused state,
+ * [error], IME action, set text, click and focus actions. Not available any more: everything
+ * that needs the selection or the text layout (TextSelectionRange, GetTextLayoutResult,
+ * SetSelection, InsertTextAtCursor, InputText, long click and cut, copy and paste in the
+ * TalkBack menu), because the String-based API cannot supply them. Never add onFillData,
+ * onAutofillText, contentType, contentDataType or fillableData here.
+ */
+@Composable
+private fun withoutAutofill(
+    modifier: Modifier,
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    imeAction: ImeAction,
+    performImeAction: () -> Unit,
+    enabled: Boolean = true,
+    helper: String? = null,
+    error: String? = null,
+): Modifier {
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    var isFocused by remember { mutableStateOf(false) }
+    return modifier
+        .clearAndSetSemantics {
+            // The error is announced through error(), the helper only while there is no error.
+            contentDescription = if (error == null && helper != null) "$label, $helper" else label
+            editableText = AnnotatedString(value)
+            isEditable = enabled
+            focused = isFocused
+            error?.let { error(it) }
+            if (enabled) {
+                setText { onValueChange(it.text); true }
+                onClick { focusRequester.requestFocus(); keyboard?.show(); true }
+                requestFocus { focusRequester.requestFocus() }
+                onImeAction(imeAction) { performImeAction(); true }
+            } else {
+                disabled()
+            }
+        }
+        .focusRequester(focusRequester)
+        .onFocusChanged { isFocused = it.isFocused }
+}
+
 /** Plain single-line field for setup values (host, user, port, domain, share name). */
 @Composable
 fun PlainField(
@@ -79,11 +157,21 @@ fun PlainField(
     onImeAction: (() -> Unit)? = null,
 ) {
     val focus = LocalFocusManager.current
+    // The same action runs for the keyboard's action key and for the accessibility action.
+    val performImeAction: () -> Unit = {
+        when (imeAction) {
+            ImeAction.Next -> onImeAction?.invoke() ?: focus.moveFocus(FocusDirection.Down)
+            ImeAction.Done -> onImeAction?.invoke() ?: focus.clearFocus()
+            else -> onImeAction?.invoke()
+        }
+    }
     NoKeyboardLearning {
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = modifier.fillMaxWidth(),
+            modifier = withoutAutofill(
+                modifier, label, value, onValueChange, imeAction, performImeAction, enabled, helper, error,
+            ).fillMaxWidth(),
             enabled = enabled,
             label = { Text(label) },
             singleLine = true,
@@ -96,9 +184,9 @@ fun PlainField(
                 imeAction = imeAction,
             ),
             keyboardActions = KeyboardActions(
-                onNext = { onImeAction?.invoke() ?: focus.moveFocus(FocusDirection.Down) },
-                onDone = { onImeAction?.invoke() ?: focus.clearFocus() },
-                onGo = { onImeAction?.invoke() },
+                onNext = { performImeAction() },
+                onDone = { performImeAction() },
+                onGo = { performImeAction() },
             ),
         )
     }
@@ -112,6 +200,7 @@ fun SearchField(
     modifier: Modifier = Modifier,
 ) {
     val focus = LocalFocusManager.current
+    val placeholder = stringResource(R.string.search_placeholder)
     Surface(
         modifier = modifier.heightIn(min = 52.dp),
         shape = CircleShape,
@@ -127,10 +216,17 @@ fun SearchField(
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 12.dp, end = 8.dp)
-                        .heightIn(min = 52.dp),
+                    modifier = withoutAutofill(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp, end = 8.dp)
+                            .heightIn(min = 52.dp),
+                        label = placeholder,
+                        value = query,
+                        onValueChange = onQueryChange,
+                        imeAction = ImeAction.Search,
+                        performImeAction = { focus.clearFocus() },
+                    ),
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -145,7 +241,7 @@ fun SearchField(
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (query.isEmpty()) {
                                 Text(
-                                    stringResource(R.string.search_placeholder),
+                                    placeholder,
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
