@@ -1,5 +1,7 @@
 package de.lulurobb.keypassmobile.ui.settings
 
+import de.lulurobb.keypassmobile.platform.settings.FileSource
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.smb.ServerNames
 import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.AppPlatform
@@ -9,6 +11,8 @@ import de.lulurobb.keypassmobile.state.fingerprintSetupMessage
 import de.lulurobb.keypassmobile.state.idleTimeoutOf
 import de.lulurobb.keypassmobile.state.passwordIntervalOf
 import de.lulurobb.keypassmobile.state.seconds
+import de.lulurobb.keypassmobile.state.sourceKindOf
+import de.lulurobb.keypassmobile.state.sourceProblemOf
 import de.lulurobb.keypassmobile.state.syncResultMessage
 import de.lulurobb.keypassmobile.state.toSyncState
 import de.lulurobb.keypassmobile.state.toUi
@@ -85,7 +89,8 @@ class SettingsModel(
 
     fun onSyncNow() {
         scope.launch {
-            syncResultMessage(platform.syncNow())?.let(messages::post)
+            val kind = sourceKindOf(platform.settings.value)
+            syncResultMessage(platform.syncNow(), kind)?.let(messages::post)
         }
     }
 
@@ -103,15 +108,21 @@ class SettingsModel(
         noSourceReported = false
         val unlocked = platform.session.value as? SessionView.Unlocked
         mutableState.value = SettingsState(
-            source = SourceInfo(source.host, source.share, source.filePath, source.user),
-            server = settings.trustedServer?.let {
-                ServerIdentity(
-                    name = ServerNames.fromGuid(it.guid) ?: source.host,
-                    rememberedOn = time.local(it.since).toLocalDate(),
-                    guid = it.guid.toString(),
+            source = when (source) {
+                is SmbSource -> SourceEntry.Smb(
+                    info = SourceInfo(source.host, source.share, source.filePath, source.user),
+                    server = settings.trustedServer?.let {
+                        ServerIdentity(
+                            name = ServerNames.fromGuid(it.guid) ?: source.host,
+                            rememberedOn = time.local(it.since).toLocalDate(),
+                            guid = it.guid.toString(),
+                        )
+                    },
                 )
+                is FileSource -> SourceEntry.File(source.displayName, source.place)
             },
-            sync = toSyncState(platform.sync.value, unlocked, time),
+            sync = toSyncState(platform.sync.value, unlocked, time, source.kind),
+            sourceProblem = sourceProblemOf(platform.sync.value, source.kind),
             fingerprintEnabled = settings.fingerprintEnabled,
             fingerprintAvailability = fingerprintAvailability,
             passwordDueOn = platform.passwordDueAt()?.let { time.local(it).toLocalDate() },

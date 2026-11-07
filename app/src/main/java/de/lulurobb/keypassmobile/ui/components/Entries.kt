@@ -30,6 +30,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import de.lulurobb.keypassmobile.R
 import de.lulurobb.keypassmobile.model.VaultEntry
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.ui.common.displayHost
 import de.lulurobb.keypassmobile.ui.common.formatStamp
 import de.lulurobb.keypassmobile.ui.common.groupLabel
@@ -41,7 +42,7 @@ import java.time.LocalDateTime
 
 /** Which version of the database is open (SY-08). */
 sealed interface SyncStatus {
-    /** The current version from the share, loaded at [loadedAt] (null: no confirmed sync, no date shown). */
+    /** The current version from the share or the file, loaded at [loadedAt] (null: no confirmed sync, no date shown). */
     data class Current(val loadedAt: LocalDateTime?) : SyncStatus
 
     /**
@@ -51,29 +52,51 @@ sealed interface SyncStatus {
     data class OfflineCopy(val copyFrom: LocalDateTime?, val reason: OfflineReason?) : SyncStatus
 }
 
-/** Why the offline copy is open instead of the version from the share. */
+/**
+ * Why the offline copy is open instead of the current version. The first six reasons belong to an
+ * SMB source, the last three to a file on the phone (see `offlineReason` in SyncMapping.kt).
+ */
 enum class OfflineReason {
-    /** Share not reachable (no VPN, timeout). */
+    /** SMB: share not reachable (no VPN, timeout). */
     ShareUnreachable,
 
-    /** A different server answered under the host (DS-04). */
+    /** SMB: a different server answered under the host (DS-04). */
     OtherServer,
 
-    /** The newer file from the share did not open with the master password (EN-06). */
+    /** The newer file (share or phone) did not open with the master password (EN-06). */
     NewVersionRejected,
 
-    /** The server refused the stored login (user or password changed). */
+    /** SMB: the server refused the stored login (user or password changed). */
     LoginFailed,
 
-    /** The file is gone from the share (moved, renamed or deleted). */
+    /** SMB: the file is gone from the share (moved, renamed or deleted). */
     FileNotFound,
 
-    /** The user may no longer read the share or file. */
+    /** SMB: the user may no longer read the file on the share. */
     NoAccess,
+
+    /** File on the phone: the file was moved, renamed or deleted (SY-09). */
+    LocalFileNotFound,
+
+    /** File on the phone: Android no longer lets the app read the file (SY-09). */
+    LocalFileNoAccess,
+
+    /**
+     * File on the phone: any other technical problem (read error, damaged or cut-off file,
+     * local storage). No reason text, no fix button, no list banner.
+     */
+    LocalFileProblem,
 }
 
-/** Sync state for the list chip and the settings. [syncing]: a check or download runs now. */
-data class SyncState(val status: SyncStatus, val syncing: Boolean = false)
+/**
+ * Sync state for the list chip and the settings. [syncing]: a check or download runs now.
+ * [kind] is the type of the source; it chooses the wording ("vom Share" or "aus der Datei").
+ */
+data class SyncState(
+    val status: SyncStatus,
+    val syncing: Boolean = false,
+    val kind: SourceKind = SourceKind.SMB,
+)
 
 /** The chip under the list's search: version stamp, tap to sync now (SY-07, SY-08). */
 @Composable
@@ -82,9 +105,15 @@ fun SyncChip(sync: SyncState, onClick: () -> Unit, modifier: Modifier = Modifier
     val offline = sync.status is SyncStatus.OfflineCopy
     val label = when {
         sync.syncing -> stringResource(R.string.sync_chip_syncing)
-        sync.status is SyncStatus.Current -> sync.status.loadedAt
-            ?.let { stringResource(R.string.sync_chip_current, formatStamp(it)) }
-            ?: stringResource(R.string.sync_chip_current_undated)
+        sync.status is SyncStatus.Current -> if (sync.kind == SourceKind.FILE) {
+            sync.status.loadedAt
+                ?.let { stringResource(R.string.sync_chip_current_file, formatStamp(it)) }
+                ?: stringResource(R.string.sync_chip_current_file_undated)
+        } else {
+            sync.status.loadedAt
+                ?.let { stringResource(R.string.sync_chip_current, formatStamp(it)) }
+                ?: stringResource(R.string.sync_chip_current_undated)
+        }
         sync.status is SyncStatus.OfflineCopy -> sync.status.copyFrom
             ?.let { stringResource(R.string.sync_chip_offline, formatStamp(it)) }
             ?: stringResource(R.string.sync_chip_offline_undated)

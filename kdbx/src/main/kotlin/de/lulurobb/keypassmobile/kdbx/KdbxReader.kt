@@ -72,6 +72,7 @@ class KdbxReader(private val argon2: Argon2Engine? = null) {
             entries = content.entries,
             customIcons = content.customIcons,
             secrets = KotpassVaultSecrets(content.passwords),
+            rootGroupUuid = content.rootGroupUuid,
         )
     }
 

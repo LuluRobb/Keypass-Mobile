@@ -7,8 +7,10 @@ import de.lulurobb.keypassmobile.core.sync.SyncProblem
 import de.lulurobb.keypassmobile.platform.biometric.FingerprintAvailability as PlatformFingerprintAvailability
 import de.lulurobb.keypassmobile.platform.session.FingerprintSetupResult
 import de.lulurobb.keypassmobile.platform.session.SyncResult
+import de.lulurobb.keypassmobile.platform.settings.FileSource
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
-import de.lulurobb.keypassmobile.platform.settings.SourceConfig
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.FakeAppPlatform
@@ -18,6 +20,7 @@ import de.lulurobb.keypassmobile.state.unlockedView
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.components.OfflineReason
 import de.lulurobb.keypassmobile.ui.components.SyncStatus
+import de.lulurobb.keypassmobile.ui.list.SourceProblem
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
@@ -33,7 +36,7 @@ import kotlin.test.assertNull
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsModelTest {
 
-    private val source = SourceConfig("nas.local", 445, "", "luca", "daten", listOf("KeePass", "pw.kdbx"))
+    private val source = SmbSource("nas.local", 445, "", "luca", "daten", listOf("KeePass", "pw.kdbx"))
     private val sambaGuid = UUID.fromString("74696572-6e61-2d6f-6e61-730000000000")
     private val randomGuid = UUID.fromString("9b2f6c1e-3d4a-4e5f-8a7b-0c1d2e3f4a5b")
     private val since = Instant.parse("2026-10-20T08:00:00Z")
@@ -67,8 +70,13 @@ class SettingsModelTest {
 
         val s = model().current()
 
-        assertEquals(SourceInfo("nas.local", "daten", listOf("KeePass", "pw.kdbx"), "luca"), s.source)
-        assertEquals(ServerIdentity("reitano-nas", LocalDate.of(2026, 10, 20), sambaGuid.toString()), s.server)
+        assertEquals(
+            SourceEntry.Smb(
+                SourceInfo("nas.local", "daten", listOf("KeePass", "pw.kdbx"), "luca"),
+                ServerIdentity("reitano-nas", LocalDate.of(2026, 10, 20), sambaGuid.toString()),
+            ),
+            s.source,
+        )
         assertIs<SyncStatus.Current>(s.sync.status)
         assertEquals(true, s.fingerprintEnabled)
         assertEquals(FingerprintAvailability.NoneEnrolled, s.fingerprintAvailability)
@@ -85,11 +93,11 @@ class SettingsModelTest {
     fun `server name falls back to the host and is null without a trusted server`() = runTest {
         platform.settingsFlow.value = platform.settingsFlow.value.copy(trustedServer = TrustedServer(randomGuid, since))
         val model = model()
-        assertEquals("nas.local", model.current().server?.name)
+        assertEquals("nas.local", (model.current().source as SourceEntry.Smb).server?.name)
 
         platform.settingsFlow.value = platform.settingsFlow.value.copy(trustedServer = null)
         runCurrent()
-        assertNull(model.current().server)
+        assertNull((model.current().source as SourceEntry.Smb).server)
     }
 
     @Test
@@ -105,9 +113,82 @@ class SettingsModelTest {
         assertEquals(true, sync.syncing)
         assertEquals(OfflineReason.LoginFailed, (sync.status as SyncStatus.OfflineCopy).reason)
 
+        // A refused login wins over a rejected version, as the list banner ranks them (UI-09).
         platform.sessionFlow.value = unlockedView(newVersionRejected = true)
         runCurrent()
+        assertEquals(OfflineReason.LoginFailed, (model.current().sync.status as SyncStatus.OfflineCopy).reason)
+
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.UNREACHABLE)
+        runCurrent()
         assertEquals(OfflineReason.NewVersionRejected, (model.current().sync.status as SyncStatus.OfflineCopy).reason)
+    }
+
+    @Test
+    fun `sync state of a file source carries the kind and the file reasons`() = runTest {
+        platform.settingsFlow.value = KpmSettings(
+            source = FileSource("content://docs/doc/1", "Passwoerter.kdbx", "Interner Speicher"),
+        )
+        val model = model()
+        assertEquals(SourceKind.FILE, model.current().sync.kind)
+
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.NOT_FOUND)
+        runCurrent()
+        assertEquals(OfflineReason.LocalFileNotFound, (model.current().sync.status as SyncStatus.OfflineCopy).reason)
+
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.ACCESS_DENIED)
+        runCurrent()
+        assertEquals(OfflineReason.LocalFileNoAccess, (model.current().sync.status as SyncStatus.OfflineCopy).reason)
+    }
+
+    @Test
+    fun `file source gives the file entry and no server`() = runTest {
+        platform.settingsFlow.value = KpmSettings(
+            source = FileSource("content://docs/doc/1", "Passwoerter.kdbx", "Interner Speicher / Syncthing"),
+            trustedServer = TrustedServer(sambaGuid, since),
+        )
+        val model = model()
+        assertEquals(SourceEntry.File("Passwoerter.kdbx", "Interner Speicher / Syncthing"), model.current().source)
+
+        platform.settingsFlow.value = KpmSettings(source = FileSource("content://docs/doc/1", "Passwoerter.kdbx", null))
+        runCurrent()
+        assertEquals(SourceEntry.File("Passwoerter.kdbx", null), model.current().source)
+    }
+
+    @Test
+    fun `source problem follows the last problem per source type`() = runTest {
+        val model = model()
+        assertNull(model.current().sourceProblem)
+
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.AUTH_FAILED)
+        runCurrent()
+        assertEquals(SourceProblem.SMB_LOGIN_FAILED, model.current().sourceProblem)
+
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.UNREACHABLE)
+        runCurrent()
+        assertNull(model.current().sourceProblem)
+
+        platform.settingsFlow.value = KpmSettings(source = FileSource("content://docs/doc/1", "Passwoerter.kdbx", null))
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.ACCESS_DENIED)
+        runCurrent()
+        assertEquals(SourceProblem.FILE_NO_ACCESS, model.current().sourceProblem)
+
+        // Other technical problems of a file: offline copy, but nothing to fix (D6).
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.REMOTE_ERROR)
+        runCurrent()
+        assertNull(model.current().sourceProblem)
+        assertEquals(OfflineReason.LocalFileProblem, (model.current().sync.status as SyncStatus.OfflineCopy).reason)
+    }
+
+    @Test
+    fun `sync now of a file source posts the file message`() = runTest {
+        platform.settingsFlow.value = KpmSettings(
+            source = FileSource("content://docs/doc/1", "Passwoerter.kdbx", "Interner Speicher"),
+        )
+        val model = model()
+        platform.syncResults += SyncResult.UpToDate
+        model.onSyncNow()
+        runCurrent()
+        assertEquals(UiMessage.SyncFileUnchanged, messages.message.value)
     }
 
     @Test

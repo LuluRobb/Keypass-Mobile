@@ -5,7 +5,8 @@ import java.io.IOException
 import java.time.Instant
 
 /**
- * The database file on the share (implemented by :app on top of :smb).
+ * The database file of the source: a file on an SMB share (implemented on top
+ * of :smb) or a file on the phone picked via the Storage Access Framework.
  * One instance is passed per sync call, so an implementation may open one
  * connection lazily, use it for [stat] and [download], and close it afterwards.
  *
@@ -25,8 +26,17 @@ interface RemoteSource {
     fun download(target: File)
 }
 
-/** Size in bytes and last modification time of the remote file (SY-04). */
-data class RemoteStat(val size: Long, val modified: Instant)
+/**
+ * Size in bytes and last modification time of the remote file (SY-04).
+ * [modified] is [UNKNOWN_MODIFIED] when the source cannot tell (a file
+ * provider without a modification time).
+ */
+data class RemoteStat(val size: Long, val modified: Instant) {
+    companion object {
+        /** Marks an unknown modification time. Compares equal to itself, so change detection falls back to the size. */
+        val UNKNOWN_MODIFIED: Instant = Instant.EPOCH
+    }
+}
 
 /** Why a remote operation failed. */
 enum class RemoteError {

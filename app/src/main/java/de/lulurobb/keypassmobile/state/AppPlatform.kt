@@ -15,7 +15,9 @@ import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
 import de.lulurobb.keypassmobile.platform.setup.ChooseResult
 import de.lulurobb.keypassmobile.platform.setup.ConnectResult
+import de.lulurobb.keypassmobile.platform.setup.FileSourceSetup
 import de.lulurobb.keypassmobile.platform.setup.FolderResult
+import de.lulurobb.keypassmobile.platform.setup.OlderVersion
 import de.lulurobb.keypassmobile.platform.setup.ServerAddress
 import kotlinx.coroutines.flow.StateFlow
 import java.io.Closeable
@@ -106,6 +108,9 @@ interface AppPlatform {
 
     /** Starts the setup or a source change. Close the returned object when leaving the flow. */
     fun startSourceSetup(): SourceSetupPort
+
+    /** Starts the setup or a source change with a file on the phone. Close the returned object when leaving the flow. */
+    fun startFileSetup(): FileSourceSetup
 }
 
 /**
@@ -140,6 +145,9 @@ interface SourceSetupPort : Closeable {
     suspend fun listFolder(share: String, path: List<String>): FolderResult
 
     suspend fun chooseFile(share: String, filePath: List<String>): ChooseResult
+
+    /** The file is older than the open version and is the same database (DS-14); null when no dialog is due. */
+    suspend fun olderVersion(share: String, filePath: List<String>): OlderVersion?
 }
 
 /**

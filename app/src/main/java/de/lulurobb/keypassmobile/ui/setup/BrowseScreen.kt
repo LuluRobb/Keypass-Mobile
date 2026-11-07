@@ -107,7 +107,7 @@ data class BrowseState(
 )
 
 /**
- * Setup step 2 (DS-02): pick share, folder and .kdbx file on the server.
+ * Setup step 2 (DS-02): pick share, folder and .kdbx file on the server (SMB only; a file on the phone is picked with the system picker).
  * When changing the source the caller starts with [BrowseState.path] at the
  * folder of the current file and [BrowseState.selected] at the file.
  */

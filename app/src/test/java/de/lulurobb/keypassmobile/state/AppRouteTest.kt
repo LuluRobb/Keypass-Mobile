@@ -22,7 +22,7 @@ class AppRouteTest {
     // ---- 1: a flow that shows a screen ----
 
     @Test
-    fun `a first-run flow shows its server or browse screen`() {
+    fun `a first-run flow shows its choice, server or browse screen`() {
         for (screen in SourceFlowScreen.entries) {
             assertEquals(
                 AppRoute.SourceFlow(SourceFlowMode.FirstRun, screen),
@@ -68,8 +68,8 @@ class AppRouteTest {
     // ---- 2: no source ----
 
     @Test
-    fun `without a source the route is setup step 1`() {
-        val step1 = AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Server)
+    fun `without a source the route is setup step 1, the source choice`() {
+        val step1 = AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Choose)
         assertEquals(step1, route(hasSource = false, setupCompleted = false))
         assertEquals(step1, route(hasSource = false, setupCompleted = false, flow = ActiveFlow(SourceFlowMode.FirstRun, null)))
         assertEquals(step1, route(unlocked = true, hasSource = false, setupCompleted = false))
@@ -111,23 +111,27 @@ class AppRouteTest {
             AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Browse),
             route(
                 unlocked = true,
-                stack = listOf(InAppScreen.Settings, InAppScreen.ChangeSource),
+                stack = listOf(InAppScreen.Settings, InAppScreen.ChangeSource(SourceFlowScreen.Choose)),
                 changeScreen = SourceFlowScreen.Browse,
             ),
         )
     }
 
     @Test
-    fun `an unlocked source change without a screen yet shows the server form`() {
+    fun `an unlocked source change without a screen yet shows the start screen of its entry`() {
+        assertEquals(
+            AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Choose),
+            route(unlocked = true, stack = listOf(InAppScreen.Settings, InAppScreen.ChangeSource(SourceFlowScreen.Choose))),
+        )
         assertEquals(
             AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Server),
-            route(unlocked = true, stack = listOf(InAppScreen.Settings, InAppScreen.ChangeSource)),
+            route(unlocked = true, stack = listOf(InAppScreen.ChangeSource(SourceFlowScreen.Server))),
         )
     }
 
     @Test
     fun `popping the top shows the screen below`() {
-        val stack = listOf(InAppScreen.Settings, InAppScreen.ChangeSource)
+        val stack = listOf(InAppScreen.Settings, InAppScreen.ChangeSource(SourceFlowScreen.Choose))
         assertEquals(AppRoute.Settings, route(unlocked = true, stack = stack.dropLast(1)))
         assertEquals(AppRoute.EntryList, route(unlocked = true, stack = stack.dropLast(2)))
     }

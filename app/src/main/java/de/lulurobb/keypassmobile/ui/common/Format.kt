@@ -54,6 +54,18 @@ fun relativeStamp(time: LocalDateTime, today: LocalDate = LocalDate.now()): Stri
         stringResource(R.string.date_at, time.format(DAY_MONTH_TIME))
     }
 
+/**
+ * The time after "Offline-Kopie": "von heute, 21:40" for today, "vom 28.10., 08:12" for other days
+ * (a bare "vom 21:40" is not German).
+ */
+@Composable
+fun sinceStamp(time: LocalDateTime, today: LocalDate = LocalDate.now()): String =
+    if (time.toLocalDate() == today) {
+        stringResource(R.string.since_today, time.format(TIME))
+    } else {
+        stringResource(R.string.since_date, time.format(DAY_MONTH_TIME))
+    }
+
 /** "30 Sekunden", "1 Minute", "2 Minuten". */
 @Composable
 fun durationText(seconds: Int): String =

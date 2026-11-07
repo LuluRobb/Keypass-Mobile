@@ -10,14 +10,17 @@ import de.lulurobb.keypassmobile.core.sync.KeySource
 import de.lulurobb.keypassmobile.core.sync.OpenedVersion
 import de.lulurobb.keypassmobile.core.sync.RemoteError
 import de.lulurobb.keypassmobile.core.sync.RemoteException
+import de.lulurobb.keypassmobile.core.sync.RemoteStat
 import de.lulurobb.keypassmobile.core.sync.SyncEngine
 import de.lulurobb.keypassmobile.core.sync.SyncProblem
 import de.lulurobb.keypassmobile.core.sync.UnlockResult
 import de.lulurobb.keypassmobile.model.Vault
+import de.lulurobb.keypassmobile.platform.settings.FileSource
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
 import de.lulurobb.keypassmobile.platform.settings.MemorySettingsRepository
 import de.lulurobb.keypassmobile.platform.settings.SettingsRepository
 import de.lulurobb.keypassmobile.platform.settings.SourceConfig
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -43,6 +46,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -75,6 +79,7 @@ class SessionTest {
         scope: CoroutineScope = backgroundScope,
         journal: SwitchJournal = SwitchJournal.None,
         clearPassword: () -> Unit = {},
+        cleanup: SourceCleanup = SourceCleanup {},
     ) = Session(
         engine = engine,
         hashStore = hashes,
@@ -92,11 +97,12 @@ class SessionTest {
         indexer = indexer,
         journal = journal,
         clearSmbPassword = clearPassword,
+        sourceCleanup = cleanup,
     )
 
     /** Offline copy that opens with [key]; the remote serves the same version. */
-    private fun seedOffline(key: String, label: String) {
-        val r = FakeRemote(kdbx(key, label), t0.minus(Duration.ofHours(1)))
+    private fun seedOffline(key: String, label: String, db: String? = null, modified: Instant = t0.minus(Duration.ofHours(1))) {
+        val r = FakeRemote(kdbx(key, label, db), modified)
         assertEquals(BackgroundSyncResult.CandidateDownloaded, engine.backgroundSync(r))
         val opened = assertIs<UnlockResult.Opened>(engine.unlock(key.toByteArray(), KeySource.TYPED_PASSWORD))
         opened.vault.close()
@@ -786,7 +792,7 @@ class SessionTest {
         runCurrent()
         remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
 
-        assertEquals(SourceSwitchResult.Saved(SyncResult.NewVersionRejected), s.switchSource(StubSwitch(remote!!, events)))
+        assertEquals(SourceSwitchResult.Saved(SyncResult.NewVersionRejected, locked = true), s.switchSource(StubSwitch(remote!!, events)))
 
         assertEquals(LockReason.SourceChanged, assertIs<SessionState.Locked>(s.state.value).reason)
         assertTrue(opener.secrets[1].closed, "the old vault is closed")
@@ -807,7 +813,7 @@ class SessionTest {
         val s = session()
         // The new source: another file with another master password, downloaded as candidate (locked).
         remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
-        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(remote!!, events)))
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), s.switchSource(StubSwitch(remote!!, events)))
         assertEquals(listOf("stage", "commit", "finish"), events)
         assertTrue(s.sync.value.status.hasLocalDatabase, "the candidate of the new source")
 
@@ -843,7 +849,7 @@ class SessionTest {
 
         val result = s.switchSource(StubSwitch(newRemote, events))
 
-        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), result)
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), result)
         assertEquals(kdbx("pw", "other"), File(dir, "sync/offline.kdbx").readText(), "the new file is the offline copy")
         assertFalse(File(dir, "sync/offline-previous.kdbx").exists())
         assertEquals(LockReason.User, assertIs<SessionState.Locked>(s.state.value).reason)
@@ -887,7 +893,7 @@ class SessionTest {
         val s = session()
         val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
         newRemote.onDownload = { events += "download" }
-        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(newRemote, events)))
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), s.switchSource(StubSwitch(newRemote, events)))
         assertEquals(listOf("download", "stage", "commit", "finish"), events)
     }
 
@@ -899,7 +905,7 @@ class SessionTest {
         val reports = collectReports(s)
         val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
 
-        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(newRemote, events)))
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), s.switchSource(StubSwitch(newRemote, events)))
 
         assertNull(journal.record)
         assertTrue(journal.writes.first()!!.let { !it.setAside && !it.passwordTouched })
@@ -941,7 +947,7 @@ class SessionTest {
         val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
         newRemote.onDownload = { backgroundScope.launch { outcome = s.unlockWithPassword("old".toCharArray()) } }
 
-        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(newRemote, events)))
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), s.switchSource(StubSwitch(newRemote, events)))
         runCurrent()
 
         assertEquals(UnlockOutcome.Busy, outcome)
@@ -951,8 +957,8 @@ class SessionTest {
 
     // ---- restart in the middle of a source change ----
 
-    private val oldSource = SourceConfig("nas", 445, "", "kpm", "daten", listOf("old.kdbx"))
-    private val newSource = SourceConfig("nas", 445, "", "kpm", "daten", listOf("new.kdbx"))
+    private val oldSource = SmbSource("nas", 445, "", "kpm", "daten", listOf("old.kdbx"))
+    private val newSource = SmbSource("nas", 445, "", "kpm", "daten", listOf("new.kdbx"))
 
     /** The old process died after the new file waits as candidate and the old copy was set aside. */
     private fun crashedAfterSetAside(): SwitchRecord {
@@ -1038,7 +1044,7 @@ class SessionTest {
         val s = session(settings)
         remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
 
-        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(remote!!, events)))
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), s.switchSource(StubSwitch(remote!!, events)))
 
         assertNull(hashes.stored)
         assertEquals(1, hashes.clears)
@@ -1110,7 +1116,7 @@ class SessionTest {
         remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
 
         // The change itself is saved; only the cleanup is open.
-        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(StubSwitch(remote!!, events)))
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), s.switchSource(StubSwitch(remote!!, events)))
         val record = journal.record
         assertTrue(record != null && record.differs, "the record stays")
 
@@ -1182,7 +1188,7 @@ class SessionTest {
         newRemote.onDownload = { backgroundScope.launch { s.syncNow(SyncTrigger.SCHEDULED) } }
         val stub = StubSwitch(newRemote, events).apply { onCommit = { this@SessionTest.remote = newRemote } }
 
-        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), s.switchSource(stub))
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), s.switchSource(stub))
         runCurrent()
 
         // The other sync ran after the commit, so it used the new source and kept the new candidate.
@@ -1254,7 +1260,7 @@ class SessionTest {
         val remembered = UUID.fromString("00000000-0000-0000-0000-000000000001")
         val settings = MemorySettingsRepository(
             KpmSettings(
-                source = SourceConfig("192.168.178.20", 445, "", "kpm", "daten", listOf("KeePass", "db.kdbx")),
+                source = SmbSource("192.168.178.20", 445, "", "kpm", "daten", listOf("KeePass", "db.kdbx")),
                 trustedServer = TrustedServer(remembered, t0.minus(Duration.ofDays(30))),
                 pendingServerGuid = reitano,
             ),
@@ -1272,36 +1278,679 @@ class SessionTest {
         assertNull(settings.settings.value.pendingServerGuid)
         assertNull(s.sync.value.serverChange)
     }
-}
 
-/** A [SourceSwitch] that only records what the session asked for. */
-private class StubSwitch(
-    override val remote: de.lulurobb.keypassmobile.core.sync.RemoteSource,
-    private val events: MutableList<String>,
-    override val differs: Boolean = true,
-) : SourceSwitch {
-    override val target = SourceConfig("nas", 445, "", "kpm", "daten", listOf("new.kdbx"))
+    // ---- the lock rule for all four paths between SMB and file (DS-13) ----
 
-    var failCommit = false
-    var failStage = false
-    var onCommit: (() -> Unit)? = null
+    private val smbA = SmbSource("nas", 445, "", "kpm", "daten", listOf("old.kdbx"))
+    private val smbB = SmbSource("nas", 445, "", "kpm", "daten", listOf("new.kdbx"))
+    private val fileA = FileSource("content://docs/document/primary%3AA%2Fold.kdbx", "old.kdbx", "Interner Speicher / A")
+    private val fileB = FileSource("content://docs/document/primary%3AB%2Fnew.kdbx", "new.kdbx", "Interner Speicher / B")
 
-    override fun stage() {
-        if (failStage) throw IllegalStateException("keystore")
-        events += "stage"
+    /** The four paths: SMB to SMB, SMB to file, file to SMB, file to file. */
+    private val paths: List<Triple<String, SourceConfig, SourceConfig>> = listOf(
+        Triple("smb to smb", smbA, smbB),
+        Triple("smb to file", smbA, fileB),
+        Triple("file to smb", fileA, smbB),
+        Triple("file to file", fileA, fileB),
+    )
+
+    /** Runs [block] once per path with a fresh sync directory; names the path when it fails. */
+    private suspend fun TestScope.eachPath(block: suspend TestScope.(index: Int, from: SourceConfig, to: SourceConfig) -> Unit) {
+        paths.forEachIndexed { i, (name, from, to) ->
+            engine = SyncEngine(File(dir, "sync-path-$i"), opener, clock)
+            remote = null
+            events.clear()
+            hashes.stored = null
+            try {
+                block(i, from, to)
+            } catch (e: AssertionError) {
+                throw AssertionError("$name: ${e.message}", e)
+            }
+        }
     }
 
-    override fun commit() {
-        if (failCommit) throw IllegalStateException("settings")
-        onCommit?.invoke()
-        events += "commit"
+    /** Same rule as the setup classes: a file target differs unless it is the same uri, an SMB target always differs here. */
+    private fun differs(from: SourceConfig, to: SourceConfig) = !(to is FileSource && from is FileSource && from.uri == to.uri)
+
+    @Test
+    fun `all four paths unlocked with the key that opens the new file replace the vault without a lock`() = runTest {
+        eachPath { _, from, to ->
+            seedOffline("pw", "v1")
+            val settings = MemorySettingsRepository(KpmSettings(source = from))
+            val cleanup = RecordingCleanup()
+            val s = session(settings, cleanup = cleanup)
+            s.unlockWithPassword("pw".toCharArray())
+            runCurrent()
+            val newRemote = FakeRemote(kdbx("pw", "other"), t0.minus(Duration.ofDays(2)))
+
+            val result = s.switchSource(StubSwitch(newRemote, events, differs(from, to), to))
+
+            assertEquals(SourceSwitchResult.Saved(SyncResult.Updated, locked = false), result)
+            assertEquals("other", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
+            assertEquals(listOf<SourceConfig?>(to), cleanup.calls)
+            s.lock(LockReason.User)
+        }
     }
 
-    override fun rollback() {
-        events += "rollback"
+    @Test
+    fun `all four paths unlocked with a key that does not open the new file lock with SourceChanged`() = runTest {
+        eachPath { i, from, to ->
+            seedOffline("old", "v1")
+            val settings = MemorySettingsRepository(KpmSettings(source = from))
+            val cleanup = RecordingCleanup()
+            val s = session(settings, cleanup = cleanup)
+            s.unlockWithPassword("old".toCharArray())
+            runCurrent()
+            val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+
+            val result = s.switchSource(StubSwitch(newRemote, events, differs(from, to), to))
+
+            assertEquals(SourceSwitchResult.Saved(SyncResult.NewVersionRejected, locked = true), result)
+            assertEquals(LockReason.SourceChanged, assertIs<SessionState.Locked>(s.state.value).reason)
+            assertTrue(File(dir, "sync-path-$i/offline-previous.kdbx").exists(), "the old copy is set aside")
+            assertEquals(listOf<SourceConfig?>(to), cleanup.calls)
+            // The old password no longer opens anything, the one of the new file does.
+            assertEquals(UnlockOutcome.WrongPassword, s.unlockWithPassword("old".toCharArray()))
+            assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("new".toCharArray()))
+            s.lock(LockReason.User)
+        }
     }
 
-    override fun finish() {
-        events += "finish"
+    @Test
+    fun `all four paths while locked stay locked and the new file waits as candidate`() = runTest {
+        eachPath { _, from, to ->
+            seedOffline("old", "v1")
+            val settings = MemorySettingsRepository(KpmSettings(source = from))
+            val cleanup = RecordingCleanup()
+            val s = session(settings, cleanup = cleanup)
+            val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+
+            val result = s.switchSource(StubSwitch(newRemote, events, differs(from, to), to))
+
+            assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), result)
+            assertNull(assertIs<SessionState.Locked>(s.state.value).reason, "the switch itself did not lock")
+            assertEquals(CandidateState.PENDING, s.sync.value.status.candidate)
+            assertEquals(listOf<SourceConfig?>(to), cleanup.calls)
+        }
+    }
+
+    @Test
+    fun `the cleanup runs after the commit and never when the switch fails`() = runTest {
+        seedOffline("old", "v1")
+        val cleanup = RecordingCleanup(events)
+        val s = session(cleanup = cleanup)
+        val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+
+        assertIs<SourceSwitchResult.Saved>(s.switchSource(StubSwitch(newRemote, events, target = fileB)))
+        assertEquals(listOf("stage", "commit", "reconcile", "finish"), events)
+
+        events.clear()
+        cleanup.calls.clear()
+        val failing = StubSwitch(FakeRemote(kdbx("third", "x"), t0.minus(Duration.ofDays(3))), events, target = fileA).apply { failCommit = true }
+        assertIs<SourceSwitchResult.Failed>(s.switchSource(failing))
+        assertTrue(cleanup.calls.isEmpty(), "a failed switch cleans nothing")
+        assertEquals(listOf("stage", "rollback", "finish"), events)
+
+        // A download failure never reaches the commit either.
+        events.clear()
+        val down = FakeRemote(kdbx("x", "y"), t0).apply { statError = RemoteException(RemoteError.UNREACHABLE) }
+        assertIs<SourceSwitchResult.Failed>(s.switchSource(StubSwitch(down, events, target = fileA)))
+        assertTrue(cleanup.calls.isEmpty())
+    }
+
+    @Test
+    fun `a failing cleanup keeps the journal and the restart repeats it`() = runTest {
+        seedOffline("old", "v1")
+        val journal = MemoryJournal()
+        val settings = MemorySettingsRepository(KpmSettings(source = fileA))
+        val cleanup = RecordingCleanup().apply { failNext = 1 }
+        val s = session(settings, journal = journal, cleanup = cleanup)
+        val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        val stub = StubSwitch(newRemote, events, target = fileB).apply { onCommit = { settings.update { it.copy(source = fileB) } } }
+
+        // The change itself is saved; only the cleanup is open.
+        assertIs<SourceSwitchResult.Saved>(s.switchSource(stub))
+        val record = journal.record
+        assertEquals(fileB, record?.target, "the record stays")
+
+        val restartedCleanup = RecordingCleanup()
+        val restartedJournal = MemoryJournal(record)
+        val restarted = session(settings, journal = restartedJournal, cleanup = restartedCleanup)
+        restarted.recoverInterruptedSwitch()
+
+        assertEquals(listOf<SourceConfig?>(fileB), restartedCleanup.calls)
+        assertNull(restartedJournal.record)
+        // The saved change was left alone: the candidate of the new file is still there.
+        assertTrue(File(dir, "sync/candidate.kdbx").exists())
+    }
+
+    @Test
+    fun `recovery of an uncommitted file target undoes the engine steps and reconciles with the old source`() = runTest {
+        val journal = MemoryJournal(crashedAfterSetAside().copy(target = fileB))
+        val cleanup = RecordingCleanup()
+        val s = session(MemorySettingsRepository(KpmSettings(source = smbA)), journal = journal, cleanup = cleanup)
+
+        s.recoverInterruptedSwitch()
+
+        // The grant of the file that was not saved is released by the reconcile with the old source.
+        assertEquals(listOf<SourceConfig?>(smbA), cleanup.calls)
+        assertNull(journal.record)
+        assertEquals(kdbx("old", "v1"), File(dir, "sync/offline.kdbx").readText())
+        assertFalse(File(dir, "sync/candidate.kdbx").exists())
+    }
+
+    @Test
+    fun `recovery of a committed file target finishes the cleanup for the new source`() = runTest {
+        val record = crashedAfterSetAside().copy(target = fileB)
+        hashes.stored = "old".toByteArray()
+        val journal = MemoryJournal(record)
+        val cleanup = RecordingCleanup()
+        val s = session(MemorySettingsRepository(KpmSettings(source = fileB, fingerprintEnabled = true)), journal = journal, cleanup = cleanup)
+
+        s.recoverInterruptedSwitch()
+
+        assertEquals(listOf<SourceConfig?>(fileB), cleanup.calls)
+        assertNull(hashes.stored)
+        assertNull(journal.record)
+        assertTrue(File(dir, "sync/candidate.kdbx").exists(), "the finished change is kept")
+    }
+
+    @Test
+    fun `a failing cleanup in the recovery keeps the journal of a finished change only`() = runTest {
+        val committed = MemoryJournal(crashedAfterSetAside().copy(target = fileB))
+        val s1 = session(MemorySettingsRepository(KpmSettings(source = fileB)), journal = committed, cleanup = RecordingCleanup().apply { failNext = 1 })
+        s1.recoverInterruptedSwitch()
+        assertEquals(fileB, committed.record?.target, "repeated at the next start")
+
+        val uncommitted = MemoryJournal(SwitchRecord(fileB, differs = true, setAside = false, offlineReplaced = false, passwordTouched = false))
+        val s2 = session(MemorySettingsRepository(KpmSettings(source = fileA)), journal = uncommitted, cleanup = RecordingCleanup().apply { failNext = 1 })
+        s2.recoverInterruptedSwitch()
+        assertNull(uncommitted.record, "an undone change must never be replayed")
+    }
+
+    // ---- D10: a change started while unlocked is discarded when the app locks before the commit ----
+
+    @Test
+    fun `unlockedMark is the lock generation while unlocked and null otherwise`() = runTest {
+        seedOffline("pw", "v1")
+        val s = session()
+        assertNull(s.unlockedMark())
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        val first = s.unlockedMark()
+        assertTrue(first != null)
+        s.lock(LockReason.User)
+        assertNull(s.unlockedMark())
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        assertTrue(s.unlockedMark() != first, "a new unlock is another generation")
+    }
+
+    @Test
+    fun `D10 a lock before the switch starts discards it and touches nothing`() = runTest {
+        for (target in listOf(smbB, fileB)) {
+            events.clear()
+            engine = SyncEngine(File(dir, "sync-${target.kind}"), opener, clock)
+            seedOffline("pw", "v1")
+            val settings = MemorySettingsRepository(KpmSettings(source = smbA))
+            val journal = MemoryJournal()
+            val cleanup = RecordingCleanup()
+            val s = session(settings, journal = journal, cleanup = cleanup)
+            s.unlockWithPassword("pw".toCharArray())
+            runCurrent()
+            val mark = s.unlockedMark()
+            s.lock(LockReason.Idle(IdleTimeout.SECONDS_30))
+            events.clear()
+            val newRemote = FakeRemote(kdbx("pw", "other"), t0.minus(Duration.ofDays(2)))
+            var downloads = 0
+            newRemote.onDownload = { downloads++ }
+
+            val result = s.switchSource(StubSwitch(newRemote, events, differs = true, target = target, unlockedMark = mark))
+
+            assertEquals(SourceSwitchResult.Discarded, result, "${target.kind}")
+            assertEquals(listOf("finish"), events, "neither stage nor commit")
+            assertEquals(0, downloads)
+            assertTrue(journal.writes.all { it == null }, "nothing was journaled")
+            assertEquals(smbA, settings.settings.value.source)
+            assertTrue(cleanup.calls.isEmpty())
+            assertEquals(kdbx("pw", "v1"), File(dir, "sync-${target.kind}/offline.kdbx").readText())
+        }
+    }
+
+    @Test
+    fun `D10 a lock during the download discards the switch and puts everything back`() = runTest {
+        seedOffline("old", "v1")
+        val settings = MemorySettingsRepository(KpmSettings(source = smbA))
+        val cleanup = RecordingCleanup()
+        val s = session(settings, cleanup = cleanup)
+        s.unlockWithPassword("old".toCharArray())
+        runCurrent()
+        val mark = s.unlockedMark()
+        // Another database with another password: it ends as a candidate; the lock hits while it downloads.
+        val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        newRemote.onDownload = { s.lock(LockReason.User) }
+        events.clear()
+
+        val result = s.switchSource(StubSwitch(newRemote, events, differs = true, target = fileB, unlockedMark = mark))
+
+        assertEquals(SourceSwitchResult.Discarded, result)
+        assertEquals(listOf("finish"), events)
+        assertEquals(smbA, settings.settings.value.source)
+        assertTrue(cleanup.calls.isEmpty())
+        assertEquals(kdbx("old", "v1"), File(dir, "sync/offline.kdbx").readText(), "the old copy is back")
+        assertFalse(File(dir, "sync/offline-previous.kdbx").exists())
+        assertFalse(File(dir, "sync/candidate.kdbx").exists(), "the foreign file is gone")
+        // The old database still unlocks, no foreign file is waiting.
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("old".toCharArray()))
+        assertEquals("v1", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
+    }
+
+    @Test
+    fun `D10 a lock and a new unlock in between still discards the switch`() = runTest {
+        seedOffline("pw", "v1")
+        val settings = MemorySettingsRepository(KpmSettings(source = smbA))
+        val s = session(settings)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        val mark = s.unlockedMark()
+        s.lock(LockReason.User)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        assertIs<SessionState.Unlocked>(s.state.value)
+
+        val result = s.switchSource(StubSwitch(FakeRemote(kdbx("pw", "other"), t0), events, true, fileB, mark))
+
+        assertEquals(SourceSwitchResult.Discarded, result)
+        assertEquals(smbA, settings.settings.value.source)
+    }
+
+    @Test
+    fun `D10 a change that stays unlocked is applied, and a change started locked is applied`() = runTest {
+        seedOffline("pw", "v1")
+        val settings = MemorySettingsRepository(KpmSettings(source = smbA))
+        val s = session(settings)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        val mark = s.unlockedMark()
+        events.clear()
+        val unlockedResult = s.switchSource(
+            StubSwitch(FakeRemote(kdbx("pw", "other"), t0.minus(Duration.ofDays(2))), events, true, fileB, mark),
+        )
+        assertEquals(SourceSwitchResult.Saved(SyncResult.Updated, locked = false), unlockedResult)
+        assertEquals(listOf("stage", "commit", "finish"), events)
+
+        // Started locked (no mark): applied although the app is locked, like before.
+        events.clear()
+        s.lock(LockReason.User)
+        val lockedResult = s.switchSource(
+            StubSwitch(FakeRemote(kdbx("pw", "third"), t0.minus(Duration.ofDays(3))), events, true, fileA, null),
+        )
+        assertIs<SourceSwitchResult.Saved>(lockedResult)
+        assertEquals(listOf("stage", "commit", "finish"), events)
+    }
+
+    // ---- D10: the point of no return is the new file replacing the old offline copy ----
+
+    @Test
+    fun `D10 a discard before the replacement leaves the old offline copy and sync state unchanged`() = runTest {
+        seedOffline("old", "v1")
+        val settings = MemorySettingsRepository(KpmSettings(source = smbA))
+        val s = session(settings)
+        s.unlockWithPassword("old".toCharArray())
+        runCurrent()
+        val mark = s.unlockedMark()
+        val before = s.sync.value.status
+        // Another database with another password becomes a candidate; the lock hits while it downloads.
+        val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        newRemote.onDownload = { s.lock(LockReason.User) }
+
+        assertEquals(SourceSwitchResult.Discarded, s.switchSource(StubSwitch(newRemote, events, true, fileB, mark)))
+
+        val after = s.sync.value.status
+        assertEquals(kdbx("old", "v1"), File(dir, "sync/offline.kdbx").readText())
+        assertTrue(after.hasLocalDatabase)
+        assertEquals(before.localModified, after.localModified)
+        assertEquals(CandidateState.NONE, after.candidate)
+        assertFalse(File(dir, "sync/offline-previous.kdbx").exists())
+        assertFalse(File(dir, "sync/candidate.kdbx").exists())
+        assertEquals(smbA, settings.settings.value.source)
+        assertEquals(before.openedModified, after.openedModified)
+        assertEquals(before.lastSuccessfulSync, after.lastSuccessfulSync)
+        assertEquals(before.lastProblem, after.lastProblem, "the rejected foreign file is not the old source's problem")
+        // The old database opens as before.
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("old".toCharArray()))
+        assertEquals("v1", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
+    }
+
+    @Test
+    fun `D10 a discarded re-pick of the same file does not bring back the old access problem`() = runTest {
+        seedOffline("pw", "v1")
+        // The file was unreadable: the last sync recorded ACCESS_DENIED.
+        remote!!.statError = RemoteException(RemoteError.ACCESS_DENIED)
+        val settings = MemorySettingsRepository(KpmSettings(source = fileA))
+        val s = session(settings)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        assertEquals(SyncProblem.ACCESS_DENIED, s.sync.value.status.lastProblem)
+        val mark = s.unlockedMark()
+        // Picked again from the banner: readable now (a newer version of the same key), the lock hits before the last check.
+        val again = FakeRemote(kdbx("pw", "v2"), t0)
+        again.onDownload = { s.lock(LockReason.User) }
+
+        val result = s.switchSource(StubSwitch(again, events, differs = false, target = fileA, unlockedMark = mark))
+
+        assertEquals(SourceSwitchResult.Discarded, result)
+        assertNull(s.sync.value.status.lastProblem, "the file is readable again: the old problem stays gone")
+    }
+
+    @Test
+    fun `D10 a lock after the replacement completes the change as a locked change`() = runTest {
+        seedOffline("pw", "v1")
+        val settings = MemorySettingsRepository(KpmSettings(source = smbA))
+        val journal = MemoryJournal()
+        val cleanup = RecordingCleanup()
+        val s = session(settings, journal = journal, cleanup = cleanup)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+        val mark = s.unlockedMark()
+        // The same master password opens the new file: it replaces the offline copy in the download step.
+        // The lock hits during that step; a rollback now would delete the old source's copy.
+        val newRemote = FakeRemote(kdbx("pw", "other"), t0.minus(Duration.ofDays(2)))
+        newRemote.onDownload = { s.lock(LockReason.User) }
+        events.clear()
+
+        val result = s.switchSource(StubSwitch(newRemote, events, true, fileB, mark))
+
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), result)
+        assertEquals(listOf("stage", "commit", "finish"), events)
+        assertEquals(listOf<SourceConfig?>(fileB), cleanup.calls, "the source was committed and cleaned up")
+        assertNull(journal.record)
+        assertIs<SessionState.Locked>(s.state.value)
+        // Consistent: the offline copy is the new file (not reset), nothing is left over.
+        assertEquals(kdbx("pw", "other"), File(dir, "sync/offline.kdbx").readText())
+        assertFalse(File(dir, "sync/offline-previous.kdbx").exists())
+        assertFalse(File(dir, "sync/candidate.kdbx").exists())
+        assertTrue(s.sync.value.status.hasLocalDatabase)
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
+        assertEquals("other", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
+    }
+
+    @Test
+    fun `D10 a lock after the last check completes the switch`() = runTest {
+        seedOffline("old", "v1")
+        val settings = MemorySettingsRepository(KpmSettings(source = fileA))
+        lateinit var s: Session
+        val journal = object : SwitchJournal {
+            var record: SwitchRecord? = null
+
+            override fun read(): SwitchRecord? = record
+
+            override fun write(record: SwitchRecord?) {
+                this.record = record
+                // The record of an SMB target with passwordTouched is written after the last check, right before stage().
+                if (record?.passwordTouched == true) s.lock(LockReason.User)
+            }
+        }
+        s = session(settings, journal = journal)
+        s.unlockWithPassword("old".toCharArray())
+        runCurrent()
+        val mark = s.unlockedMark()
+        val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+        events.clear()
+
+        val result = s.switchSource(StubSwitch(newRemote, events, true, smbB, mark))
+
+        assertIs<SourceSwitchResult.Saved>(result)
+        assertEquals(listOf("stage", "commit", "finish"), events)
+        assertIs<SessionState.Locked>(s.state.value)
+        // The old copy is set aside and the new file waits as candidate: the state of every locked change.
+        assertTrue(File(dir, "sync/offline-previous.kdbx").exists())
+        assertTrue(File(dir, "sync/candidate.kdbx").exists())
+        assertNull(journal.record)
+    }
+
+    // ---- DS-15 recovery: the SMB password is cleared only when a switch may have touched it ----
+
+    @Test
+    fun `a switch to a file never marks the SMB password as touched, a switch to SMB does`() = runTest {
+        seedOffline("pw", "v1")
+        val toFile = MemoryJournal()
+        val s1 = session(MemorySettingsRepository(KpmSettings(source = smbA)), journal = toFile)
+        assertIs<SourceSwitchResult.Saved>(s1.switchSource(StubSwitch(FakeRemote(kdbx("pw", "v1"), t0), events, true, fileB)))
+        assertTrue(toFile.writes.isNotEmpty())
+        assertTrue(toFile.writes.all { it?.passwordTouched != true }, "stage() of a file stores nothing")
+
+        events.clear()
+        val toSmb = MemoryJournal()
+        val s2 = session(MemorySettingsRepository(KpmSettings(source = fileB)), journal = toSmb)
+        assertIs<SourceSwitchResult.Saved>(s2.switchSource(StubSwitch(FakeRemote(kdbx("pw", "v1"), t0), events, true, smbB)))
+        assertTrue(toSmb.writes.any { it?.passwordTouched == true }, "stage() of SMB replaces the password")
+    }
+
+    @Test
+    fun `recovery of an SMB to file switch that died before the commit keeps the SMB password`() = runTest {
+        var cleared = 0
+        val journal = MemoryJournal(SwitchRecord(fileB, differs = true, setAside = false, offlineReplaced = false, passwordTouched = false))
+        val s = session(MemorySettingsRepository(KpmSettings(source = smbA)), journal = journal, clearPassword = { cleared++ })
+
+        s.recoverInterruptedSwitch()
+
+        assertEquals(0, cleared, "the old SMB source is still the saved one and keeps its password")
+        assertNull(journal.record)
+    }
+
+    @Test
+    fun `recovery of a file to SMB switch that died after the password was replaced clears it`() = runTest {
+        var cleared = 0
+        val journal = MemoryJournal(SwitchRecord(smbB, differs = true, setAside = false, offlineReplaced = false, passwordTouched = true))
+        val s = session(MemorySettingsRepository(KpmSettings(source = fileA)), journal = journal, clearPassword = { cleared++ })
+
+        s.recoverInterruptedSwitch()
+
+        assertEquals(1, cleared)
+        assertNull(journal.record)
+    }
+
+    // ---- a switch with differs = false is a re-pick of the same file ----
+
+    @Test
+    fun `a switch to the same file leaves the offline copy, the candidate and the unlock alone`() = runTest {
+        seedOffline("pw", "v1")
+        val journal = MemoryJournal()
+        val s = session(MemorySettingsRepository(KpmSettings(source = fileA)), journal = journal)
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+
+        val result = s.switchSource(StubSwitch(remote!!, events, differs = false, target = fileA))
+
+        assertEquals(SourceSwitchResult.Saved(SyncResult.UpToDate, locked = false), result)
+        assertIs<SessionState.Unlocked>(s.state.value, "no lock for the same file")
+        assertTrue(s.sync.value.status.hasLocalDatabase)
+        assertEquals(kdbx("pw", "v1"), File(dir, "sync/offline.kdbx").readText())
+        assertFalse(File(dir, "sync/offline-previous.kdbx").exists(), "nothing is set aside")
+        assertTrue(journal.writes.filterNotNull().all { !it.differs && !it.setAside })
+    }
+
+    @Test
+    fun `a switch to another file sets the old copy aside, which is what differs asks for`() = runTest {
+        seedOffline("pw", "v1")
+        val journal = MemoryJournal()
+        val s = session(MemorySettingsRepository(KpmSettings(source = fileA)), journal = journal)
+        remote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
+
+        val result = s.switchSource(StubSwitch(remote!!, events, differs = true, target = fileB))
+
+        assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = false), result)
+        assertTrue(File(dir, "sync/offline-previous.kdbx").exists())
+        assertTrue(journal.writes.filterNotNull().any { it.differs && it.setAside })
+    }
+
+    // ---- E: the rejected-version banner ends when the share has the open version again ----
+
+    @Test
+    fun `a sync that finds the open version on the share again ends the rejected banner`() = runTest {
+        for (source in listOf<SourceConfig>(smbA, fileA)) {
+            engine = SyncEngine(File(dir, "sync-e-${source.kind}"), opener, clock)
+            seedOffline("pw", "v1")
+            val original = remote!!.content
+            val originalModified = remote!!.modified
+            remote!!.publish(kdbx("new", "v2"), t0)
+            val s = session(MemorySettingsRepository(KpmSettings(source = source)))
+            s.unlockWithPassword("pw".toCharArray())
+            runCurrent()
+            assertTrue(assertIs<SessionState.Unlocked>(s.state.value).newVersionRejected, "${source.kind}")
+            assertEquals(CandidateState.REJECTED, s.sync.value.status.candidate)
+
+            // The share is set back to the version that is open.
+            remote!!.publish(original, originalModified)
+            assertEquals(SyncResult.UpToDate, s.syncNow())
+
+            val unlocked = assertIs<SessionState.Unlocked>(s.state.value)
+            assertFalse(unlocked.newVersionRejected, "${source.kind}: the banner is gone")
+            assertEquals("v1", unlocked.vault.rootGroupName)
+            assertEquals(CandidateState.NONE, s.sync.value.status.candidate)
+            assertEquals(OpenedVersion.SHARE, s.sync.value.status.openedVersion)
+            assertNull(s.sync.value.status.lastProblem)
+        }
+    }
+
+    @Test
+    fun `a sync that still finds the rejected file keeps the banner`() = runTest {
+        seedOffline("pw", "v1")
+        remote!!.publish(kdbx("new", "v2"), t0)
+        val s = session()
+        s.unlockWithPassword("pw".toCharArray())
+        runCurrent()
+
+        assertEquals(SyncResult.NewVersionRejected, s.syncNow())
+
+        assertTrue(assertIs<SessionState.Unlocked>(s.state.value).newVersionRejected)
+    }
+
+    // ---- DS-14: the picked file is an older version of the open database ----
+
+    private val olderBy = Duration.ofHours(4)
+
+    /** The seed has this modification time (one hour before t0), so it is the time of the open version. */
+    private val openModified: Instant = t0.minus(Duration.ofHours(1))
+
+    private class CountingRemote(content: String, modified: Instant) {
+        val remote = FakeRemote(content, modified)
+        var downloads = 0
+
+        init {
+            remote.onDownload = { downloads++ }
+        }
+    }
+
+    /** Unlocked on database "db1" (key "pw") whose file has the time [openModified]. */
+    private suspend fun TestScope.unlockedOnDb1(): Session {
+        seedOffline("pw", "v1", db = "db1")
+        val s = session()
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
+        runCurrent()
+        assertEquals(openModified, engine.status().openedModified)
+        return s
+    }
+
+    @Test
+    fun `an older file of the same database is reported with both times and changes no state`() = runTest {
+        val s = unlockedOnDb1()
+        val state = s.state.value
+        val before = engine.status()
+        val picked = CountingRemote(kdbx("pw", "v0", "db1"), openModified.minus(olderBy))
+
+        val check = s.olderVersionCheck(picked.remote)
+
+        assertEquals(OlderCheck(fileModified = openModified.minus(olderBy), openModified = openModified), check)
+        assertEquals(1, picked.downloads)
+        assertSame(state, s.state.value, "the open vault is untouched")
+        assertEquals(before, engine.status(), "no problem recorded, no candidate")
+        assertFalse(File(dir, "sync/probe.tmp").exists())
+        assertTrue(opener.hashes.last().isWiped(), "the copy of the hash is wiped")
+    }
+
+    @Test
+    fun `a newer or equally old file is no older version and is not downloaded`() = runTest {
+        val s = unlockedOnDb1()
+        val newer = CountingRemote(kdbx("pw", "v2", "db1"), openModified.plus(Duration.ofHours(1)))
+        assertNull(s.olderVersionCheck(newer.remote))
+        assertEquals(0, newer.downloads)
+        val same = CountingRemote(kdbx("pw", "v1", "db1"), openModified)
+        assertNull(s.olderVersionCheck(same.remote))
+        assertEquals(0, same.downloads)
+    }
+
+    @Test
+    fun `another database or another key gives no dialog so that the lock rule applies`() = runTest {
+        val s = unlockedOnDb1()
+        val otherDb = CountingRemote(kdbx("pw", "v0", "db2"), openModified.minus(olderBy))
+        assertNull(s.olderVersionCheck(otherDb.remote))
+        assertEquals(1, otherDb.downloads, "it had to be opened to compare")
+        val wrongKey = CountingRemote(kdbx("other", "v0", "db1"), openModified.minus(olderBy))
+        assertNull(s.olderVersionCheck(wrongKey.remote))
+        val noUuid = CountingRemote(kdbx("pw", "v0"), openModified.minus(olderBy))
+        assertNull(s.olderVersionCheck(noUuid.remote), "a file without a root uuid cannot be matched")
+        val damaged = CountingRemote("KDBX|broken", openModified.minus(olderBy))
+        assertNull(s.olderVersionCheck(damaged.remote))
+        assertFalse(File(dir, "sync/probe.tmp").exists())
+        assertNull(engine.status().lastProblem, "the probe records no problem")
+        // Every copy of the hash that reached the opener is wiped, except the one the session itself holds.
+        assertTrue(opener.hashes.drop(2).all { it.isWiped() })
+    }
+
+    @Test
+    fun `locked or never unlocked there is no check and no download`() = runTest {
+        seedOffline("pw", "v1", db = "db1")
+        val s = session()
+        val picked = CountingRemote(kdbx("pw", "v0", "db1"), openModified.minus(olderBy))
+        assertNull(s.olderVersionCheck(picked.remote), "first run or locked")
+        assertEquals(0, picked.downloads)
+    }
+
+    @Test
+    fun `unknown modification times give no check`() = runTest {
+        // The open version has no known time.
+        seedOffline("pw", "v1", db = "db1", modified = RemoteStat.UNKNOWN_MODIFIED)
+        val s = session()
+        assertIs<UnlockOutcome.Unlocked>(s.unlockWithPassword("pw".toCharArray()))
+        runCurrent()
+        assertNull(engine.status().openedModified)
+        val picked = CountingRemote(kdbx("pw", "v0", "db1"), openModified.minus(olderBy))
+        assertNull(s.olderVersionCheck(picked.remote))
+        assertEquals(0, picked.downloads)
+        s.lock(LockReason.User)
+
+        // The picked file has no known time.
+        engine = SyncEngine(File(dir, "sync2"), opener, clock)
+        val s2 = unlockedOnDb1()
+        val unknown = CountingRemote(kdbx("pw", "v0", "db1"), RemoteStat.UNKNOWN_MODIFIED)
+        assertNull(s2.olderVersionCheck(unknown.remote))
+        assertEquals(0, unknown.downloads)
+    }
+
+    @Test
+    fun `a failing stat or download gives no check`() = runTest {
+        val s = unlockedOnDb1()
+        val noStat = CountingRemote(kdbx("pw", "v0", "db1"), openModified.minus(olderBy))
+        noStat.remote.statError = RemoteException(RemoteError.UNREACHABLE)
+        assertNull(s.olderVersionCheck(noStat.remote))
+        val noDownload = CountingRemote(kdbx("pw", "v0", "db1"), openModified.minus(olderBy))
+        noDownload.remote.onDownload = { throw RemoteException(RemoteError.NOT_FOUND) }
+        assertNull(s.olderVersionCheck(noDownload.remote))
+        assertFalse(File(dir, "sync/probe.tmp").exists())
+        assertNull(engine.status().lastProblem)
+    }
+
+    @Test
+    fun `a lock during the probe gives no check and the hash copy is wiped`() = runTest {
+        val s = unlockedOnDb1()
+        val picked = CountingRemote(kdbx("pw", "v0", "db1"), openModified.minus(olderBy))
+        picked.remote.onDownload = { s.lock(LockReason.User) }
+
+        assertNull(s.olderVersionCheck(picked.remote))
+
+        assertEquals(LockReason.User, assertIs<SessionState.Locked>(s.state.value).reason)
+        assertTrue(opener.hashes.last().isWiped())
     }
 }

@@ -36,6 +36,16 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
         const val FILE_NAME = "kpm_platform_settings"
 
         private const val VERSION = "version"
+        private const val VERSION_NUMBER = 2
+
+        /** "smb" or "file"; missing in version 1 (SMB only). */
+        private const val TYPE = "source.type"
+        private const val TYPE_SMB = "smb"
+        private const val TYPE_FILE = "file"
+        private const val URI = "source.uri"
+        private const val NAME = "source.name"
+        private const val PLACE = "source.place"
+        private const val LAST_FOLDER = "picker.lastFolder"
         private const val HOST = "source.host"
         private const val PORT = "source.port"
         private const val DOMAIN = "source.domain"
@@ -57,25 +67,12 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
         private const val PATH_SEPARATOR = "/"
 
         fun read(p: SharedPreferences): KpmSettings {
-            val source = run {
-                val host = p.getString(HOST, null) ?: return@run null
-                val user = p.getString(USER, null) ?: return@run null
-                val share = p.getString(SHARE, null) ?: return@run null
-                val path = p.getString(PATH, null)?.split(PATH_SEPARATOR)?.filter { it.isNotEmpty() }
-                if (path.isNullOrEmpty()) return@run null
-                SourceConfig(
-                    host = host,
-                    port = p.getInt(PORT, 445),
-                    domain = p.getString(DOMAIN, "") ?: "",
-                    user = user,
-                    share = share,
-                    filePath = path,
-                )
-            }
+            val source = readSource(p)
             val trustedGuid = p.getString(TRUSTED_GUID, null)?.let(::uuidOrNull)
             val intervalAtEntry = p.getString(INTERVAL_AT_ENTRY, null)
             return KpmSettings(
                 source = source,
+                lastPickedFolder = p.getString(LAST_FOLDER, null),
                 trustedServer = trustedGuid?.let { TrustedServer(it, instantOrEpoch(p, TRUSTED_SINCE)) },
                 pendingServerGuid = p.getString(PENDING_GUID, null)?.let(::uuidOrNull),
                 fingerprintEnabled = p.getBoolean(FINGERPRINT, false),
@@ -90,15 +87,9 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
         }
 
         fun write(e: SharedPreferences.Editor, s: KpmSettings): SharedPreferences.Editor {
-            e.putInt(VERSION, 1)
-            val src = s.source
-            if (src == null) {
-                e.remove(HOST).remove(PORT).remove(DOMAIN).remove(USER).remove(SHARE).remove(PATH)
-            } else {
-                e.putString(HOST, src.host).putInt(PORT, src.port).putString(DOMAIN, src.domain)
-                    .putString(USER, src.user).putString(SHARE, src.share)
-                    .putString(PATH, src.filePath.joinToString(PATH_SEPARATOR))
-            }
+            e.putInt(VERSION, VERSION_NUMBER)
+            writeSource(e, s.source)
+            putOrRemove(e, LAST_FOLDER, s.lastPickedFolder)
             val trusted = s.trustedServer
             if (trusted == null) {
                 e.remove(TRUSTED_GUID).remove(TRUSTED_SINCE)
@@ -114,6 +105,71 @@ internal class PrefsSettingsRepository(private val prefs: SharedPreferences) : S
             if (s.lastPasswordEntry == null) e.remove(LAST_ENTRY) else e.putLong(LAST_ENTRY, s.lastPasswordEntry.toEpochMilli())
             putOrRemove(e, INTERVAL_AT_ENTRY, s.intervalAtEntry?.name)
             return e
+        }
+
+        /**
+         * A missing type with the SMB keys present is a source saved before the
+         * file source existed: it reads as [SmbSource], nothing is rewritten until
+         * the next update. An unknown type reads as no source.
+         */
+        private fun readSource(p: SharedPreferences): SourceConfig? = when (p.getString(TYPE, null)) {
+            null, TYPE_SMB -> readSmb(p)
+            TYPE_FILE -> readFile(p)
+            else -> null
+        }
+
+        private fun readSmb(p: SharedPreferences): SmbSource? {
+            val host = p.getString(HOST, null) ?: return null
+            val user = p.getString(USER, null) ?: return null
+            val share = p.getString(SHARE, null) ?: return null
+            val path = p.getString(PATH, null)?.split(PATH_SEPARATOR)?.filter { it.isNotEmpty() }
+            if (path.isNullOrEmpty()) return null
+            return SmbSource(
+                host = host,
+                port = p.getInt(PORT, 445),
+                domain = p.getString(DOMAIN, "") ?: "",
+                user = user,
+                share = share,
+                filePath = path,
+            )
+        }
+
+        private fun readFile(p: SharedPreferences): FileSource? {
+            val uri = p.getString(URI, null)?.takeIf { it.isNotEmpty() } ?: return null
+            val name = p.getString(NAME, null)?.takeIf { it.isNotEmpty() } ?: return null
+            return FileSource(uri, name, p.getString(PLACE, null))
+        }
+
+        /** Writes the keys of one kind and removes those of the other (exactly one source). */
+        private fun writeSource(e: SharedPreferences.Editor, src: SourceConfig?) {
+            when (src) {
+                null -> {
+                    e.remove(TYPE)
+                    removeSmb(e)
+                    removeFile(e)
+                }
+                is SmbSource -> {
+                    removeFile(e)
+                    e.putString(TYPE, TYPE_SMB)
+                    e.putString(HOST, src.host).putInt(PORT, src.port).putString(DOMAIN, src.domain)
+                        .putString(USER, src.user).putString(SHARE, src.share)
+                        .putString(PATH, src.filePath.joinToString(PATH_SEPARATOR))
+                }
+                is FileSource -> {
+                    removeSmb(e)
+                    e.putString(TYPE, TYPE_FILE)
+                    e.putString(URI, src.uri).putString(NAME, src.displayName)
+                    putOrRemove(e, PLACE, src.place)
+                }
+            }
+        }
+
+        private fun removeSmb(e: SharedPreferences.Editor) {
+            e.remove(HOST).remove(PORT).remove(DOMAIN).remove(USER).remove(SHARE).remove(PATH)
+        }
+
+        private fun removeFile(e: SharedPreferences.Editor) {
+            e.remove(URI).remove(NAME).remove(PLACE)
         }
 
         private fun putOrRemove(e: SharedPreferences.Editor, key: String, value: String?) {

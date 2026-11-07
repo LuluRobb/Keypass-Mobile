@@ -26,8 +26,10 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import de.lulurobb.keypassmobile.R
 import de.lulurobb.keypassmobile.model.VaultEntry
+import de.lulurobb.keypassmobile.ui.common.formatDateTime
 import de.lulurobb.keypassmobile.ui.icons.KpmIcon
 import de.lulurobb.keypassmobile.ui.icons.KpmIcons
+import java.time.LocalDateTime
 
 /**
  * Warning before filling an entry whose URL does not match the page (AF-06).
@@ -115,6 +117,43 @@ fun OtherServerDialog(info: OtherServerInfo, onAccept: () -> Unit, onDismiss: ()
         dismissButton = {
             TextButton(onClick = onAccept) { Text(stringResource(R.string.other_server_accept)) }
         },
+    )
+}
+
+/**
+ * The picked file is older than the version that is open (DS-14). Both dates are local
+ * date and time; the dialog shows them as "31.10.2026, 21:38".
+ */
+data class OlderVersionInfo(
+    val fileName: String,
+    /** Modification date of the picked file. */
+    val fileModified: LocalDateTime,
+    /** Modification date of the file the open version was read from. */
+    val openModified: LocalDateTime,
+)
+
+/**
+ * Asks whether to use a file that is older than the open version of the same database (DS-14).
+ * "Trotzdem verwenden" ([onUseAnyway]) continues the switch, "Abbrechen" ([onCancel]) discards the
+ * pick and keeps the source. Dismissing the dialog (back, tap outside) counts as cancel.
+ */
+@Composable
+fun OlderVersionDialog(info: OlderVersionInfo, onUseAnyway: () -> Unit, onCancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text(stringResource(R.string.older_title)) },
+        text = {
+            Text(
+                stringResource(
+                    R.string.older_text,
+                    info.fileName,
+                    formatDateTime(info.fileModified),
+                    formatDateTime(info.openModified),
+                ),
+            )
+        },
+        confirmButton = { TextButton(onClick = onUseAnyway) { Text(stringResource(R.string.older_use_anyway)) } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(stringResource(R.string.action_cancel)) } },
     )
 }
 

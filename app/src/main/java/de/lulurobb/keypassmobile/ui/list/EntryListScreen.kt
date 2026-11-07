@@ -20,14 +20,12 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,14 +37,12 @@ import de.lulurobb.keypassmobile.R
 import de.lulurobb.keypassmobile.model.EntrySection
 import de.lulurobb.keypassmobile.model.VaultEntry
 import de.lulurobb.keypassmobile.ui.common.MessageHost
+import de.lulurobb.keypassmobile.ui.common.SourceAction
 import de.lulurobb.keypassmobile.ui.common.UiMessage
-import de.lulurobb.keypassmobile.ui.common.formatStamp
 import de.lulurobb.keypassmobile.ui.components.CountLine
 import de.lulurobb.keypassmobile.ui.components.EmptyLine
 import de.lulurobb.keypassmobile.ui.components.EntryRow
 import de.lulurobb.keypassmobile.ui.components.GroupHeader
-import de.lulurobb.keypassmobile.ui.components.Notice
-import de.lulurobb.keypassmobile.ui.components.NoticeTone
 import de.lulurobb.keypassmobile.ui.components.RowDetail
 import de.lulurobb.keypassmobile.ui.components.ScreenPadding
 import de.lulurobb.keypassmobile.ui.components.SearchField
@@ -55,16 +51,6 @@ import de.lulurobb.keypassmobile.ui.components.SyncState
 import de.lulurobb.keypassmobile.ui.icons.EntryIcons
 import de.lulurobb.keypassmobile.ui.icons.KpmIcon
 import de.lulurobb.keypassmobile.ui.icons.KpmIcons
-import java.time.LocalDateTime
-
-/** Banner above the list. */
-sealed interface ListBanner {
-    /** Sync stopped because a different server answered (DS-04). Action: details dialog. */
-    data class OtherServer(val host: String) : ListBanner
-
-    /** The newer file from the share did not open (EN-06); the offline copy of [copyFrom] is open. */
-    data class NewVersionRejected(val copyFrom: LocalDateTime?) : ListBanner
-}
 
 /** What the list shows (UI-01). Counts refer to the current group filter. */
 sealed interface EntryListContent {
@@ -102,8 +88,10 @@ fun EntryListScreen(
     modifier: Modifier = Modifier,
     onBannerDetails: () -> Unit = {},
     onBannerDismiss: () -> Unit = {},
+    onSourceAction: (SourceAction) -> Unit = {},
     message: UiMessage? = null,
     onMessageDismissed: () -> Unit = {},
+    onMessageAction: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier,
@@ -136,7 +124,7 @@ fun EntryListScreen(
                     modifier = Modifier.padding(horizontal = ScreenPadding),
                 )
                 GroupChips(state.topGroups, state.groupFilter, onGroupFilterChange)
-                state.banner?.let { Banner(it, onBannerDetails, onBannerDismiss) }
+                state.banner?.let { ListBannerNotice(it, onBannerDetails, onBannerDismiss, onSourceAction) }
             }
         },
         // The Scaffold knows only the horizontal insets here (the content scrolls behind the system bars),
@@ -146,6 +134,7 @@ fun EntryListScreen(
                 message,
                 onMessageDismissed,
                 Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
+                onAction = onMessageAction,
             )
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
@@ -242,40 +231,5 @@ private fun GroupChips(groups: List<String>, selected: String?, onSelect: (Strin
                 },
             )
         }
-    }
-}
-
-@Composable
-private fun Banner(banner: ListBanner, onDetails: () -> Unit, onDismiss: () -> Unit) {
-    val modifier = Modifier.padding(horizontal = ScreenPadding).padding(top = 4.dp, bottom = 8.dp)
-    when (banner) {
-        is ListBanner.OtherServer -> Notice(
-            tone = NoticeTone.Error,
-            icon = KpmIcons.Warning,
-            title = stringResource(R.string.banner_other_server_title),
-            text = stringResource(R.string.banner_other_server_text, banner.host),
-            modifier = modifier,
-            actions = {
-                TextButton(
-                    onClick = onDetails,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onErrorContainer),
-                ) { Text(stringResource(R.string.action_details)) }
-            },
-        )
-        is ListBanner.NewVersionRejected -> Notice(
-            tone = NoticeTone.Warning,
-            icon = KpmIcons.Info,
-            title = stringResource(R.string.banner_candidate_title),
-            text = banner.copyFrom
-                ?.let { stringResource(R.string.banner_candidate_text, formatStamp(it)) }
-                ?: stringResource(R.string.banner_candidate_text_undated),
-            modifier = modifier,
-            actions = {
-                TextButton(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onTertiaryContainer),
-                ) { Text(stringResource(R.string.action_ok)) }
-            },
-        )
     }
 }

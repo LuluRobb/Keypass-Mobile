@@ -102,9 +102,69 @@ sealed interface ChooseResult {
      * waits as candidate (CandidateReady, NewVersionRejected), the old offline
      * copy is not opened any more, and an unlocked session was locked with
      * LockReason.SourceChanged: unlock with the master password of the new file.
+     *
+     * [lockedForNewDatabase]: the switch itself locked the session because the new
+     * file does not open with the key in memory (DS-13). The UI then shows only the
+     * lock notice and not "Quelle gespeichert.".
      */
-    data class Saved(val fileSizeBytes: Long, val fileChanged: Boolean, val sync: SyncResult) : ChooseResult
+    data class Saved(
+        val fileSizeBytes: Long,
+        val fileChanged: Boolean,
+        val sync: SyncResult,
+        val lockedForNewDatabase: Boolean = false,
+    ) : ChooseResult
 
     /** Nothing was saved; the previous source stays. */
     data class Failed(val problem: SyncProblem) : ChooseResult
+
+    /**
+     * Nothing was saved and nothing is to be shown: the change was started while the app was
+     * unlocked and the app locked before it was committed (D10). The previous source,
+     * password and offline copy are as before; a permission taken for the new file is given back.
+     */
+    data object Discarded : ChooseResult
 }
+
+/**
+ * A file on the phone that the user picked, after the silent check passed
+ * (DS-11, DS-12). Size and modification time are null when the provider does not
+ * report them.
+ */
+data class PickedFile(
+    /** Document URI as text (content://...). */
+    val uri: String,
+    val displayName: String,
+    val sizeBytes: Long?,
+    val lastModified: Instant?,
+    /** Where the file lies, e.g. "Interner Speicher / Syncthing / KeePass"; null if unknown. */
+    val place: String?,
+)
+
+/**
+ * Result of [FileSourceSetup.accept]. Anything but [Ok] has already released the
+ * persisted read permission again (unless it is the current source's own).
+ * [fileName] is the name shown in the error message.
+ */
+sealed interface FileCheck {
+    data class Ok(val file: PickedFile) : FileCheck
+
+    /** The file does not start like a KeePass database (DS-11). */
+    data class NotKdbx(val fileName: String) : FileCheck
+
+    /** The file was not found or could not be read (DS-11). */
+    data class Unreadable(val fileName: String) : FileCheck
+
+    /** Android refused the lasting read permission (DS-12). */
+    data class NoLastingAccess(val fileName: String) : FileCheck
+}
+
+/**
+ * The picked file is older than the version that is open now (DS-14).
+ * [fileModified] is the modification time of the picked file, [openModified]
+ * the one of the file the open version was read from.
+ */
+data class OlderVersion(
+    val fileName: String,
+    val fileModified: Instant,
+    val openModified: Instant,
+)

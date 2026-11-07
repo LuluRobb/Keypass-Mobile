@@ -1,6 +1,16 @@
 package de.lulurobb.keypassmobile.ui.gallery
 
 import de.lulurobb.keypassmobile.ui.components.rememberSecretInput
+import de.lulurobb.keypassmobile.R
+import androidx.compose.ui.res.stringResource
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
+import de.lulurobb.keypassmobile.ui.common.PickFailure
+import de.lulurobb.keypassmobile.ui.components.BusyOverlay
+import de.lulurobb.keypassmobile.ui.dialogs.OlderVersionDialog
+import de.lulurobb.keypassmobile.ui.dialogs.OlderVersionInfo
+import de.lulurobb.keypassmobile.ui.list.SourceProblem
+import de.lulurobb.keypassmobile.ui.setup.ChooseScreen
+import de.lulurobb.keypassmobile.ui.setup.ManageSourceScreen
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,6 +42,7 @@ import de.lulurobb.keypassmobile.ui.settings.FingerprintAvailability
 import de.lulurobb.keypassmobile.ui.settings.ServerIdentity
 import de.lulurobb.keypassmobile.ui.settings.SettingsScreen
 import de.lulurobb.keypassmobile.ui.settings.SettingsState
+import de.lulurobb.keypassmobile.ui.settings.SourceEntry
 import de.lulurobb.keypassmobile.ui.settings.SourceInfo
 import de.lulurobb.keypassmobile.ui.setup.BrowseContent
 import de.lulurobb.keypassmobile.ui.setup.BrowseScreen
@@ -88,6 +99,14 @@ internal object Scenarios {
                 back,
             )
         },
+        Scenario("setup-choose", SETUP, "Schritt 1: Wo liegt die Datenbank?") { back -> ChooseDemo(back) },
+        Scenario("manage-smb", SETUP, "Quelle verwalten: aktuell SMB") { back -> ManageDemo(SourceKind.SMB, back) },
+        Scenario("manage-file", SETUP, "Quelle verwalten: aktuell Datei") { back -> ManageDemo(SourceKind.FILE, back) },
+        Scenario("pick-error-snackbar", SETUP, "Datei gewählt: keine KeePass-Datenbank") { back ->
+            ManageDemo(SourceKind.FILE, back, message = UiMessage.PickFailed(PickFailure.NotKdbx, "liesmich.txt"))
+        },
+        Scenario("pick-busy", SETUP, "Datei gewählt: Lese Datei") { _ -> BusyOverlay(stringResource(R.string.pick_reading)) },
+        Scenario("older-dialog", SETUP, "Ältere Version gewählt") { back -> OlderDemo(back) },
         Scenario("browse", SETUP, "Schritt 2: Freigaben") { back -> BrowseDemo(emptyList(), null, back) },
         Scenario("browse-folder", SETUP, "Schritt 2: Ordner, Datei gewählt") { back ->
             BrowseDemo(listOf("kpm"), listOf("kpm", FakeData.FILE), back)
@@ -108,7 +127,10 @@ internal object Scenarios {
                     fileName = FakeData.FILE,
                     mode = UnlockMode.Password,
                     fingerprintUsable = false,
-                    firstRun = FirstRunUnlock(SetupStep(3), FakeData.FILE_SIZE, 7, fingerprintWanted = true, fingerprintAvailable = true),
+                    firstRun = FirstRunUnlock(SetupStep(3), 7, fingerprintWanted = true, fingerprintAvailable = true),
+                    sourceKind = SourceKind.FILE,
+                    place = FakeData.FILE_PLACE,
+                    modified = FakeData.FILE_MODIFIED,
                 ),
                 back,
             )
@@ -118,6 +140,24 @@ internal object Scenarios {
 
         Scenario("unlock", UNLOCK, "Fingerabdruck") { back ->
             UnlockDemo(UnlockState(FakeData.FILE, UnlockMode.Fingerprint, fingerprintUsable = true), back)
+        },
+        Scenario("unlock-smb-line", UNLOCK, "Quelle: SMB-Ordner und Datum") { back ->
+            UnlockDemo(
+                UnlockState(
+                    FakeData.FILE, UnlockMode.Fingerprint, fingerprintUsable = true,
+                    sourceKind = SourceKind.SMB, place = FakeData.SMB_PLACE, modified = FakeData.FILE_MODIFIED,
+                ),
+                back,
+            )
+        },
+        Scenario("unlock-file-line", UNLOCK, "Quelle: Ordner auf dem Handy und Datum") { back ->
+            UnlockDemo(
+                UnlockState(
+                    FakeData.FILE, UnlockMode.Fingerprint, fingerprintUsable = true,
+                    sourceKind = SourceKind.FILE, place = FakeData.FILE_PLACE, modified = FakeData.FILE_MODIFIED,
+                ),
+                back,
+            )
         },
         Scenario("unlock-password", UNLOCK, "Master-Passwort (nach Abbrechen)") { back ->
             UnlockDemo(UnlockState(FakeData.FILE, UnlockMode.Password, fingerprintUsable = true), back)
@@ -189,6 +229,43 @@ internal object Scenarios {
                 banner = ListBanner.NewVersionRejected(FakeData.offlineCopy),
             )
         },
+        Scenario("list-file-missing", LIST, "Datei nicht gefunden") { back ->
+            ListDemo(
+                back,
+                status = SyncStatus.OfflineCopy(FakeData.offlineCopy, OfflineReason.LocalFileNotFound),
+                banner = ListBanner.SourceMissing(SourceProblem.FILE_NOT_FOUND, FakeData.offlineCopy, null),
+                kind = SourceKind.FILE,
+            )
+        },
+        Scenario("list-file-noaccess", LIST, "Kein Zugriff mehr auf die Datei") { back ->
+            ListDemo(
+                back,
+                status = SyncStatus.OfflineCopy(FakeData.offlineCopy, OfflineReason.LocalFileNoAccess),
+                banner = ListBanner.SourceMissing(SourceProblem.FILE_NO_ACCESS, FakeData.offlineCopy, null),
+                kind = SourceKind.FILE,
+            )
+        },
+        Scenario("list-smb-missing", LIST, "SMB: Datei nicht mehr auf dem Share") { back ->
+            ListDemo(
+                back,
+                status = SyncStatus.OfflineCopy(FakeData.offlineCopy, OfflineReason.FileNotFound),
+                banner = ListBanner.SourceMissing(SourceProblem.SMB_NOT_FOUND, FakeData.offlineCopy, FakeData.SMB_USER),
+            )
+        },
+        Scenario("list-smb-noaccess", LIST, "SMB: kein Zugriff auf die Datei") { back ->
+            ListDemo(
+                back,
+                status = SyncStatus.OfflineCopy(FakeData.offlineCopy, OfflineReason.NoAccess),
+                banner = ListBanner.SourceMissing(SourceProblem.SMB_NO_ACCESS, FakeData.offlineCopy, FakeData.SMB_USER),
+            )
+        },
+        Scenario("list-smb-auth", LIST, "SMB: Anmeldung fehlgeschlagen") { back ->
+            ListDemo(
+                back,
+                status = SyncStatus.OfflineCopy(FakeData.offlineCopy, OfflineReason.LoginFailed),
+                banner = ListBanner.SourceMissing(SourceProblem.SMB_LOGIN_FAILED, FakeData.offlineCopy, FakeData.SMB_USER),
+            )
+        },
         Scenario("list-locked-msg", LIST, "Meldung nach Sync") { back -> ListDemo(back, message = UiMessage.SyncNoNewer) },
 
         Scenario("detail", APP, "Kopier-Ansicht") { back -> DetailDemo("paypal", back) },
@@ -197,6 +274,15 @@ internal object Scenarios {
         },
         Scenario("detail-custom", APP, "Kopier-Ansicht: eigenes Icon") { back -> DetailDemo("netflix", back) },
         Scenario("settings", APP, "Einstellungen") { back -> SettingsDemo(back) },
+        Scenario("settings-file", APP, "Einstellungen: Datei auf dem Handy") { back ->
+            SettingsDemo(back, file = true)
+        },
+        Scenario("settings-file-missing", APP, "Einstellungen: Datei nicht gefunden") { back ->
+            SettingsDemo(back, file = true, problem = SourceProblem.FILE_NOT_FOUND, reason = OfflineReason.LocalFileNotFound)
+        },
+        Scenario("settings-smb-auth", APP, "Einstellungen: SMB-Anmeldung fehlgeschlagen") { back ->
+            SettingsDemo(back, problem = SourceProblem.SMB_LOGIN_FAILED, reason = OfflineReason.LoginFailed)
+        },
         Scenario("settings-offline", APP, "Einstellungen: offline, Sync läuft, ohne Fingerabdruck") { back ->
             SettingsDemo(back, offline = true, syncing = true, fingerprint = false)
         },
@@ -341,11 +427,12 @@ private fun ListDemo(
     banner: ListBanner? = null,
     serverDialog: Boolean = false,
     message: UiMessage? = null,
+    kind: SourceKind = SourceKind.SMB,
 ) {
     val icons = remember { EntryIcons(FakeData.customIcons) }
     var q by remember { mutableStateOf(query) }
     var group by remember { mutableStateOf(filter) }
-    var sync by remember { mutableStateOf(SyncState(status, syncing)) }
+    var sync by remember { mutableStateOf(SyncState(status, syncing, kind)) }
     var shownBanner by remember { mutableStateOf(banner) }
     var dialog by remember { mutableStateOf(serverDialog) }
     var msg by remember { mutableStateOf(message) }
@@ -396,7 +483,7 @@ private fun ListDemo(
             onAccept = {
                 dialog = false
                 shownBanner = null
-                sync = SyncState(SyncStatus.Current(FakeData.lastSync))
+                sync = SyncState(SyncStatus.Current(FakeData.lastSync), kind = kind)
                 msg = UiMessage.ServerAccepted
             },
             onDismiss = { dialog = false },
@@ -425,17 +512,33 @@ private fun DetailDemo(entry: VaultEntry, onBack: () -> Unit, message: UiMessage
 }
 
 @Composable
-private fun SettingsDemo(back: () -> Unit, offline: Boolean = false, syncing: Boolean = false, fingerprint: Boolean = true) {
+private fun SettingsDemo(
+    back: () -> Unit,
+    offline: Boolean = false,
+    syncing: Boolean = false,
+    fingerprint: Boolean = true,
+    file: Boolean = false,
+    problem: SourceProblem? = null,
+    reason: OfflineReason = OfflineReason.ShareUnreachable,
+) {
     var state by remember {
         mutableStateOf(
             SettingsState(
-                source = SourceInfo(FakeData.HOST, "kpm", listOf(FakeData.FILE), FakeData.SMB_USER),
-                server = ServerIdentity(FakeData.SERVER, LocalDate.of(2026, 10, 31), FakeData.GUID),
+                source = if (file) {
+                    SourceEntry.File(FakeData.FILE, FakeData.FILE_PLACE)
+                } else {
+                    SourceEntry.Smb(
+                        SourceInfo(FakeData.HOST, "kpm", listOf(FakeData.FILE), FakeData.SMB_USER),
+                        ServerIdentity(FakeData.SERVER, LocalDate.of(2026, 10, 31), FakeData.GUID),
+                    )
+                },
                 sync = SyncState(
-                    if (offline) SyncStatus.OfflineCopy(FakeData.offlineCopy, OfflineReason.ShareUnreachable)
+                    if (offline || problem != null) SyncStatus.OfflineCopy(FakeData.offlineCopy, reason)
                     else SyncStatus.Current(FakeData.lastSync),
                     syncing,
+                    if (file) SourceKind.FILE else SourceKind.SMB,
                 ),
+                sourceProblem = problem,
                 fingerprintEnabled = fingerprint,
                 fingerprintAvailability = FingerprintAvailability.Available,
                 passwordDueOn = LocalDate.now().plusDays(6),
@@ -492,5 +595,34 @@ private fun PickerDemo(target: FillTarget, back: () -> Unit, query: String = "",
         },
         onPhishingFillAnyway = back,
         onPhishingDismiss = { warning = null },
+    )
+}
+
+@Composable
+private fun ChooseDemo(back: () -> Unit) {
+    ChooseScreen(onSmb = back, onFile = back)
+}
+
+@Composable
+private fun ManageDemo(current: SourceKind, back: () -> Unit, message: UiMessage? = null) {
+    var msg by remember { mutableStateOf(message) }
+    ManageSourceScreen(
+        current = current,
+        onSmb = back,
+        onFile = back,
+        onBack = back,
+        message = msg,
+        onMessageDismissed = { msg = null },
+        onMessageAction = back,
+    )
+}
+
+@Composable
+private fun OlderDemo(back: () -> Unit) {
+    ManageDemo(SourceKind.FILE, back)
+    OlderVersionDialog(
+        info = OlderVersionInfo(FakeData.FILE, FakeData.OLDER_MODIFIED, FakeData.FILE_MODIFIED),
+        onUseAnyway = back,
+        onCancel = back,
     )
 }

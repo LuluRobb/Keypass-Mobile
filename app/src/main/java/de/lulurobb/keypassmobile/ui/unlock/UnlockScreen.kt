@@ -42,11 +42,12 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import de.lulurobb.keypassmobile.R
 import de.lulurobb.keypassmobile.model.FillTarget
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.ui.common.MessageHost
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.common.displayName
 import de.lulurobb.keypassmobile.ui.common.everyDaysText
-import de.lulurobb.keypassmobile.ui.common.formatFileSize
+import de.lulurobb.keypassmobile.ui.common.formatDateTime
 import de.lulurobb.keypassmobile.ui.common.text
 import de.lulurobb.keypassmobile.ui.components.BigButton
 import de.lulurobb.keypassmobile.ui.components.BusyOverlay
@@ -60,6 +61,7 @@ import de.lulurobb.keypassmobile.ui.components.SetupStep
 import de.lulurobb.keypassmobile.ui.icons.KpmIcon
 import de.lulurobb.keypassmobile.ui.icons.KpmIcons
 import kotlinx.coroutines.flow.drop
+import java.time.LocalDateTime
 
 /** Which way of unlocking the screen offers (EN-01, EN-02). */
 enum class UnlockMode {
@@ -101,8 +103,6 @@ enum class PasswordError {
 /** Extra content when the unlock screen is step 3 of the first-run setup. */
 data class FirstRunUnlock(
     val step: SetupStep,
-    /** Size of the file just loaded from the share; null (e.g. after process death) hides the line. */
-    val fileSizeBytes: Long?,
     /** Interval for the master password (EN-05), for the explanation. */
     val passwordIntervalDays: Int,
     /** State of the switch "Danach mit Fingerabdruck entsperren". */
@@ -129,6 +129,12 @@ data class UnlockState(
     val problem: UnlockProblem? = null,
     /** Why the app was locked ("Gesperrt.", ...); shown as a notice until the next successful unlock. */
     val lockNotice: UiMessage? = null,
+    /** Type of the source; chooses the wording of the problem notice. */
+    val sourceKind: SourceKind = SourceKind.SMB,
+    /** Where the database lies (EN-07): UNC folder of the share or place of the file; null when unknown. */
+    val place: String? = null,
+    /** Modification time of the version the unlock opens (EN-07); null when unknown. */
+    val modified: LocalDateTime? = null,
 )
 
 /**
@@ -206,24 +212,9 @@ fun UnlockScreen(
                         state.fillTarget?.let { FillContext(it) }
                         state.lockNotice?.let { LockNotice(it) }
                         if (problem != null) {
-                            ProblemNotice(problem, onSyncNow, onChooseSource)
+                            ProblemNotice(problem, state.sourceKind, onSyncNow, onChooseSource)
                         } else {
                             ReasonNotice(state.passwordReason)
-                        }
-                        if (first != null) {
-                            // Follows the current availability: the fingerprint may be enrolled while the step is open.
-                            Notice(
-                                tone = NoticeTone.Neutral,
-                                icon = KpmIcons.Info,
-                                text = if (first.fingerprintAvailable) {
-                                    stringResource(
-                                        R.string.unlock_first_run_info,
-                                        everyDaysText(first.passwordIntervalDays),
-                                    )
-                                } else {
-                                    stringResource(R.string.unlock_first_run_info_no_fingerprint)
-                                },
-                            )
                         }
                     }
                 }
@@ -303,13 +294,28 @@ private fun UnlockHead(state: UnlockState) {
             style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
-        state.firstRun?.fileSizeBytes?.let { size ->
+        sourceLine(state.place, state.modified)?.let { line ->
             Text(
-                stringResource(R.string.unlock_loaded_from_share, formatFileSize(size)),
+                line,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/**
+ * Line under the name (EN-07): "<Ort> · geändert <Datum>". An unknown part is dropped (D7): without
+ * a date only the place, without a place "geändert <Datum>", without both no line.
+ */
+@Composable
+private fun sourceLine(place: String?, modified: LocalDateTime?): String? {
+    val date = modified?.let { formatDateTime(it) }
+    return when {
+        place != null && date != null -> stringResource(R.string.unlock_source_line, place, date)
+        place != null -> place
+        date != null -> stringResource(R.string.unlock_source_line_modified, date)
+        else -> null
     }
 }
 
@@ -380,7 +386,7 @@ private fun ReasonNotice(reason: PasswordReason?) {
 }
 
 @Composable
-private fun ProblemNotice(problem: UnlockProblem, onSyncNow: () -> Unit, onChooseSource: () -> Unit) {
+private fun ProblemNotice(problem: UnlockProblem, kind: SourceKind, onSyncNow: () -> Unit, onChooseSource: () -> Unit) {
     val tone = if (problem == UnlockProblem.Corrupt) NoticeTone.Error else NoticeTone.Warning
     val content = if (problem == UnlockProblem.Corrupt) {
         MaterialTheme.colorScheme.onErrorContainer
@@ -395,7 +401,12 @@ private fun ProblemNotice(problem: UnlockProblem, onSyncNow: () -> Unit, onChoos
             if (problem == UnlockProblem.Corrupt) R.string.unlock_corrupt_title else R.string.unlock_no_db_title,
         ),
         text = stringResource(
-            if (problem == UnlockProblem.Corrupt) R.string.unlock_corrupt_text else R.string.unlock_no_db_text,
+            when {
+                problem == UnlockProblem.Corrupt && kind == SourceKind.FILE -> R.string.unlock_corrupt_text_file
+                problem == UnlockProblem.Corrupt -> R.string.unlock_corrupt_text
+                kind == SourceKind.FILE -> R.string.unlock_no_db_text_file
+                else -> R.string.unlock_no_db_text
+            },
         ),
         actions = {
             TextButton(onClick = onSyncNow, colors = colors) { Text(stringResource(R.string.unlock_sync_action)) }

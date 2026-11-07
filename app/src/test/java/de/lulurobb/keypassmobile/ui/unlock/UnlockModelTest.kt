@@ -9,12 +9,15 @@ import de.lulurobb.keypassmobile.platform.session.PasswordRequiredReason
 import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.session.UnlockOffer
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
+import de.lulurobb.keypassmobile.platform.settings.FileSource
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
-import de.lulurobb.keypassmobile.platform.settings.SourceConfig
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.FakeAppPlatform
 import de.lulurobb.keypassmobile.state.SessionView
 import de.lulurobb.keypassmobile.state.testTime
+import de.lulurobb.keypassmobile.state.testSyncInfo
 import de.lulurobb.keypassmobile.state.unlockedView
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import kotlinx.coroutines.CompletableDeferred
@@ -23,6 +26,8 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
+import java.time.Instant
+import java.time.LocalDateTime
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -104,7 +109,7 @@ class UnlockModelTest {
 
     @Test
     fun `the file name comes from the source and the fill target is passed on`() = runTest {
-        val source = SourceConfig("nas", 445, "", "rel", "daten", listOf("KeePass", "Passwords.kdbx"))
+        val source = SmbSource("nas", 445, "", "rel", "daten", listOf("KeePass", "Passwords.kdbx"))
         platform.settingsFlow.value = KpmSettings(source = source)
         val target = FillTarget.Web("example.org", "com.browser")
         val state = model(fillTarget = target).state.value
@@ -207,7 +212,6 @@ class UnlockModelTest {
         assertEquals(14, first.passwordIntervalDays)
         assertTrue(first.fingerprintAvailable)
         assertTrue(first.fingerprintWanted)
-        assertNull(first.fileSizeBytes)
         assertEquals(0, model.promptToken.value)
         assertFalse("unlockOffer" in platform.calls)
     }
@@ -255,17 +259,6 @@ class UnlockModelTest {
         submit(model, "geheim")
         assertEquals(UiMessage.FingerprintStoreFailed, messages.message.value)
         assertFalse(model.lastFingerprintStored)
-    }
-
-    @Test
-    fun `the file size comes from the setup and can be removed`() = runTest {
-        val model = model(firstRun = true)
-        model.setFirstRunFileSize(2048)
-        runCurrent()
-        assertEquals(2048L, model.state.value.firstRun!!.fileSizeBytes)
-        model.setFirstRunFileSize(null)
-        runCurrent()
-        assertNull(model.state.value.firstRun!!.fileSizeBytes)
     }
 
     // ---- fingerprint ----
@@ -327,6 +320,39 @@ class UnlockModelTest {
         assertTrue(state.fingerprintUsable)
     }
 
+    // ---- source line (EN-07) ----
+
+    private fun withModified(modified: Instant?) = testSyncInfo().let { it.copy(status = it.status.copy(localModified = modified)) }
+
+    @Test
+    fun `smb place is the unc folder with the host as typed and the date follows the sync status`() = runTest {
+        platform.settingsFlow.value = KpmSettings(
+            source = SmbSource("NAS.local", 445, "", "luca", "daten", listOf("KeePass", "Privat", "pw.kdbx")),
+        )
+        platform.syncFlow.value = withModified(Instant.parse("2026-10-31T21:38:00Z"))
+        val state = model().state.value
+        assertEquals(SourceKind.SMB, state.sourceKind)
+        assertEquals("\\\\NAS.local\\daten\\KeePass\\Privat", state.place)
+        assertEquals(LocalDateTime.of(2026, 10, 31, 21, 38), state.modified)
+        assertEquals("pw.kdbx", state.fileName)
+    }
+
+    @Test
+    fun `file place comes from the source and unknown parts stay null`() = runTest {
+        platform.settingsFlow.value = KpmSettings(source = FileSource("content://d/1", "pw.kdbx", "Interner Speicher / Download"))
+        platform.syncFlow.value = withModified(null)
+        val model = model()
+        assertEquals(SourceKind.FILE, model.state.value.sourceKind)
+        assertEquals("Interner Speicher / Download", model.state.value.place)
+        assertNull(model.state.value.modified)
+
+        platform.settingsFlow.value = KpmSettings(source = FileSource("content://d/1", "pw.kdbx", null))
+        platform.syncFlow.value = withModified(Instant.parse("2026-09-12T18:05:00Z"))
+        runCurrent()
+        assertNull(model.state.value.place)
+        assertEquals(LocalDateTime.of(2026, 9, 12, 18, 5), model.state.value.modified)
+    }
+
     // ---- problems ----
 
     @Test
@@ -369,6 +395,27 @@ class UnlockModelTest {
         runCurrent()
         assertNull(model.state.value.problem)
         assertEquals(UiMessage.DatabaseLoaded, messages.message.value)
+    }
+
+    @Test
+    fun `a file source is worded for the file`() = runTest {
+        platform.settingsFlow.value = KpmSettings(
+            source = FileSource("content://docs/doc/1", "Passwoerter.kdbx", "Interner Speicher"),
+        )
+        platform.unlockOutcomes += UnlockOutcome.NoDatabase
+        platform.syncResults += SyncResult.CandidateReady
+        val model = model()
+        submit(model, "geheim")
+        model.onSyncNow()
+        runCurrent()
+        assertNull(model.state.value.problem)
+        assertEquals(UiMessage.DatabaseLoadedFile, messages.message.value)
+
+        messages.dismiss()
+        platform.unlockOutcomes += unlocked(newVersion = true)
+        platform.offer = password(PasswordRequiredReason.NOT_SET_UP)
+        submit(model, "richtig")
+        assertEquals(UiMessage.SyncUpdatedFile, messages.message.value)
     }
 
     @Test

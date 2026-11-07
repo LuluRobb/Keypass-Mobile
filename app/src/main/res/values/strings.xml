@@ -19,14 +19,37 @@
     <string name="search_placeholder">Einträge durchsuchen</string>
     <string name="search_clear">Suche leeren</string>
 
+    <!-- Setup, step 1: choose the kind of source (UI-07) and manage the source (UI-08) -->
+    <string name="setup_choose_heading">Wo liegt deine Datenbank?</string>
+    <string name="setup_choose_lead">KeyPass Mobile liest die KDBX-Datei nur und behält eine verschlüsselte Kopie für unterwegs.</string>
+    <string name="source_kind_smb">SMB-Freigabe</string>
+    <string name="setup_choose_smb_text">NAS oder Windows-PC im Heimnetz. Unterwegs ohne VPN gilt die Kopie auf dem Handy.</string>
+    <string name="source_kind_file">Datei auf dem Handy</string>
+    <string name="setup_choose_file_text">Zum Beispiel in einem Ordner, den Syncthing aktuell hält. Du wählst sie in der Dateiauswahl von Android.</string>
+    <string name="manage_smb_change">SMB-Freigabe ändern</string>
+    <string name="manage_to_file">Zu Datei wechseln</string>
+    <string name="manage_file_change">Andere Datei wählen</string>
+    <string name="manage_to_smb">Zu SMB-Freigabe wechseln</string>
+
+    <!-- File picked with the system picker (DS-11, DS-12) -->
+    <string name="pick_reading">Lese Datei …</string>
+    <string name="pick_error_not_kdbx">„%1$s“ ist keine KeePass-Datenbank.</string>
+    <string name="pick_error_unreadable">„%1$s“ ließ sich nicht lesen.</string>
+    <string name="pick_error_no_lasting_access">Android gibt keinen dauerhaften Zugriff auf „%1$s“.</string>
+    <string name="pick_again">Neu wählen</string>
+
+    <!-- Dialog: older version (DS-14) -->
+    <string name="older_title">Ältere Version</string>
+    <string name="older_text">„%1$s“ ist vom %2$s. Geöffnet ist der Stand vom %3$s.</string>
+    <string name="older_use_anyway">Trotzdem verwenden</string>
+
     <!-- Setup, step 1: server -->
     <string name="setup_title">Einrichten</string>
-    <string name="setup_edit_source_title">Quelle ändern</string>
+    <string name="setup_edit_source_title">Quelle verwalten</string>
     <string name="setup_server_heading">Mit welchem Server verbinden?</string>
-    <string name="setup_server_lead">KeyPass Mobile liest deine KDBX-Datei von einer SMB-Freigabe und behält eine verschlüsselte Kopie für unterwegs. Die Datei wählst du im nächsten Schritt aus.</string>
+    <string name="setup_server_lead">Die Datei wählst du im nächsten Schritt aus.</string>
     <string name="setup_field_host">Host</string>
     <string name="setup_field_user">Benutzer</string>
-    <string name="setup_field_user_helper">Am besten ein eigener Benutzer, der nur den Ordner mit der Datenbank lesen darf.</string>
     <string name="setup_field_password">Passwort</string>
     <string name="setup_advanced">Erweitert: Port und Domäne</string>
     <string name="setup_field_port">Port</string>
@@ -75,9 +98,6 @@
     <string name="share_dialog_open">Öffnen</string>
 
     <!-- Setup, step 3 and unlock -->
-    <string name="unlock_loaded_from_share">Vom Share geladen, %1$s</string>
-    <string name="unlock_first_run_info">Die App speichert nicht dein Passwort, sondern einen daraus abgeleiteten Wert, den nur dein Fingerabdruck freigibt. Sie fragt %1$s wieder nach dem Master-Passwort. Das lässt sich in den Einstellungen ändern.</string>
-    <string name="unlock_first_run_info_no_fingerprint">Die App speichert nichts von deinem Passwort und fragt bei jedem Entsperren danach. Mit einem Fingerabdruck im System kannst du das später in den Einstellungen ändern.</string>
     <string name="unlock_first_run_fingerprint">Danach mit Fingerabdruck entsperren</string>
     <string name="unlock_with_fingerprint">Mit Fingerabdruck entsperren</string>
     <string name="unlock_enter_password">Master-Passwort eingeben</string>
@@ -101,6 +121,12 @@
     <string name="unlock_corrupt_text">Die gespeicherte Kopie lässt sich nicht lesen. Hol die Datei neu vom Share oder wähl die Quelle noch einmal.</string>
     <string name="unlock_corrupt_action">Quelle neu wählen</string>
     <string name="unlock_choose_source">Andere Datenbank wählen</string>
+    <!-- Line under the database name (EN-07): place, date of the file. Either part may be unknown (then only the other is shown). -->
+    <string name="unlock_source_line">%1$s · geändert %2$s</string>
+    <string name="unlock_source_line_modified">geändert %1$s</string>
+    <!-- Variants for a file source (the SMB texts above say "vom Share") -->
+    <string name="unlock_no_db_text_file">Es liegt noch keine Kopie der Datenbank auf diesem Gerät. Hol sie aus der Datei, danach lässt sich die App entsperren.</string>
+    <string name="unlock_corrupt_text_file">Die gespeicherte Kopie lässt sich nicht lesen. Hol die Datei neu oder wähl die Quelle noch einmal.</string>
     <plurals name="every_n_days">
         <item quantity="one">jeden Tag</item>
         <item quantity="other">alle %d Tage</item>
@@ -124,6 +150,8 @@
     <string name="sync_chip_offline">Offline-Kopie · Stand %1$s</string>
     <string name="sync_chip_current_undated">Aktuell · vom Share</string>
     <string name="sync_chip_offline_undated">Offline-Kopie</string>
+    <string name="sync_chip_current_file">Aktuell · aus der Datei, %1$s</string>
+    <string name="sync_chip_current_file_undated">Aktuell · aus der Datei</string>
     <string name="sync_chip_syncing">Synchronisiere …</string>
     <string name="filter_all">Alle</string>
     <string name="filter_by_group">Nach Gruppe filtern</string>
@@ -141,8 +169,26 @@
     <string name="banner_other_server_title">Sync gestoppt: anderer Server</string>
     <string name="banner_other_server_text">Unter %1$s antwortet ein anderer Server. Die App hat sich dort nicht angemeldet.</string>
     <string name="banner_candidate_title">Neue Version ließ sich nicht öffnen</string>
-    <string name="banner_candidate_text">Die Datei vom Share passt nicht zu diesem Master-Passwort. Geöffnet ist die Offline-Kopie vom %1$s. Hast du das Passwort am PC geändert, sperr die App und entsperr sie mit dem neuen.</string>
+    <string name="banner_candidate_text">Die Datei vom Share passt nicht zu diesem Master-Passwort. Geöffnet ist die Offline-Kopie %1$s. Hast du das Passwort am PC geändert, sperr die App und entsperr sie mit dem neuen.</string>
     <string name="banner_candidate_text_undated">Die Datei vom Share passt nicht zu diesem Master-Passwort. Geöffnet ist die Offline-Kopie. Hast du das Passwort am PC geändert, sperr die App und entsperr sie mit dem neuen.</string>
+    <string name="banner_candidate_text_file">Die neue Version der Datei passt nicht zu diesem Master-Passwort. Geöffnet ist die Offline-Kopie %1$s. Hast du das Passwort am PC geändert, sperr die App und entsperr sie mit dem neuen.</string>
+    <string name="banner_candidate_text_file_undated">Die neue Version der Datei passt nicht zu diesem Master-Passwort. Geöffnet ist die Offline-Kopie. Hast du das Passwort am PC geändert, sperr die App und entsperr sie mit dem neuen.</string>
+
+    <!-- Banner: the source is missing or refuses access (UI-09). The texts without "_undated" carry the date of the offline copy. -->
+    <string name="action_repick_file">Datei neu wählen</string>
+    <string name="banner_file_missing_title">Datei nicht gefunden</string>
+    <string name="banner_file_no_access_title">Kein Zugriff mehr auf die Datei</string>
+    <string name="banner_file_text">Geöffnet ist die Offline-Kopie %1$s. Wähl die Datei neu, damit die App wieder abgleichen kann.</string>
+    <string name="banner_file_text_undated">Geöffnet ist die Offline-Kopie. Wähl die Datei neu, damit die App wieder abgleichen kann.</string>
+    <string name="banner_smb_missing_title">Datei nicht gefunden</string>
+    <string name="banner_smb_missing_text">Auf dem Share liegt sie nicht mehr. Geöffnet ist die Offline-Kopie %1$s. Wähl die Datei neu, damit die App wieder abgleichen kann.</string>
+    <string name="banner_smb_missing_text_undated">Auf dem Share liegt sie nicht mehr. Geöffnet ist die Offline-Kopie. Wähl die Datei neu, damit die App wieder abgleichen kann.</string>
+    <string name="banner_smb_no_access_title">Kein Zugriff auf die Datei</string>
+    <string name="banner_smb_no_access_text">Der Server lässt %1$s die Datei nicht mehr lesen. Geöffnet ist die Offline-Kopie %2$s. Prüf die Rechte auf dem Share oder wähl eine andere Datei.</string>
+    <string name="banner_smb_no_access_text_undated">Der Server lässt %1$s die Datei nicht mehr lesen. Geöffnet ist die Offline-Kopie. Prüf die Rechte auf dem Share oder wähl eine andere Datei.</string>
+    <string name="banner_smb_login_title">Anmeldung fehlgeschlagen</string>
+    <string name="banner_smb_login_text">Der Server hat die Anmeldung von %1$s abgelehnt. Geöffnet ist die Offline-Kopie %2$s. Gib die Zugangsdaten neu ein, damit die App wieder abgleichen kann.</string>
+    <string name="banner_smb_login_text_undated">Der Server hat die Anmeldung von %1$s abgelehnt. Geöffnet ist die Offline-Kopie. Gib die Zugangsdaten neu ein, damit die App wieder abgleichen kann.</string>
 
     <!-- Copy view (UI-02) -->
     <string name="detail_username">Benutzername</string>
@@ -157,17 +203,30 @@
 
     <!-- Settings (UI-03) -->
     <string name="settings_title">Einstellungen</string>
-    <string name="settings_section_database">Datenbank</string>
-    <string name="settings_source">SMB-Quelle</string>
+    <string name="settings_section_source">Quelle</string>
+    <string name="settings_source_server">Server %1$s, gemerkt am %2$s</string>
+    <string name="settings_manage_source">Quelle verwalten</string>
     <string name="settings_source_user">Benutzer %1$s</string>
-    <string name="settings_server">Server</string>
-    <string name="settings_server_remembered">%1$s, gemerkt am %2$s</string>
     <string name="settings_section_sync">Synchronisation</string>
     <string name="settings_sync_current">Aktuell</string>
     <string name="settings_sync_current_text">Version vom Share, geladen %1$s.</string>
     <string name="settings_sync_current_text_undated">Version vom Share.</string>
+    <string name="settings_sync_current_text_file">Version aus der Datei, gelesen %1$s.</string>
+    <string name="settings_sync_current_text_file_undated">Version aus der Datei.</string>
+    <!-- Second line under the sync status (D8) -->
+    <string name="settings_sync_background_smb">Im Hintergrund alle 4 Stunden, wenn der Share erreichbar ist.</string>
+    <string name="settings_sync_background_file">Im Hintergrund alle 4 Stunden.</string>
+    <!-- Status title of a file source with another technical problem, no reason and no button (D6) -->
+    <string name="settings_sync_offline_copy">Offline-Kopie</string>
+    <string name="settings_sync_no_access_file">Kein Zugriff mehr</string>
+    <!-- Reason lines of the sync status for a source that is missing or refuses access (SY-09, UI-09) -->
+    <string name="sync_why_file_missing">Die Datei wurde verschoben, umbenannt oder gelöscht.</string>
+    <string name="sync_why_file_no_access">Android lässt die App die Datei nicht mehr lesen. Wählst du sie neu, gibt Android den Zugriff wieder frei.</string>
+    <string name="sync_why_smb_missing">Die Datei liegt nicht mehr auf dem Share.</string>
+    <string name="sync_why_smb_no_access">Der Server lässt %1$s die Datei nicht mehr lesen.</string>
+    <string name="sync_why_smb_login">Der Server hat die Anmeldung von %1$s abgelehnt.</string>
     <string name="settings_sync_offline">Share nicht erreichbar</string>
-    <string name="settings_sync_offline_text">Geöffnet ist die Offline-Kopie vom %1$s.</string>
+    <string name="settings_sync_offline_text">Geöffnet ist die Offline-Kopie %1$s.</string>
     <string name="settings_sync_offline_text_undated">Geöffnet ist die Offline-Kopie.</string>
     <string name="settings_sync_other_server">Sync gestoppt: anderer Server</string>
     <string name="settings_sync_login_failed">Anmeldung fehlgeschlagen</string>
@@ -197,6 +256,8 @@
         <item quantity="other">%d Tagen</item>
     </plurals>
     <string name="today_at">heute um %1$s</string>
+    <string name="since_today">von heute, %1$s</string>
+    <string name="since_date">vom %1$s</string>
     <string name="date_at">am %1$s</string>
 
     <!-- Autofill picker (AF-03 to AF-07) -->
@@ -242,6 +303,11 @@
     <string name="msg_sync_no_newer">Keine neuere Version auf dem Share.</string>
     <string name="msg_sync_updated">Neue Version vom Share geladen.</string>
     <string name="msg_database_loaded">Datenbank vom Share geladen.</string>
+    <string name="msg_sync_updated_file">Neue Version aus der Datei geladen.</string>
+    <string name="msg_database_loaded_file">Datenbank aus der Datei geladen.</string>
+    <string name="msg_sync_file_unchanged">Die Datei ist unverändert.</string>
+    <string name="msg_sync_file_not_found">Datei nicht gefunden. Die Offline-Kopie bleibt geöffnet.</string>
+    <string name="msg_sync_file_no_access">Kein Zugriff auf die Datei. Die Offline-Kopie bleibt geöffnet.</string>
     <string name="msg_sync_failed">Sync fehlgeschlagen. Die Offline-Kopie bleibt unverändert.</string>
     <string name="msg_sync_unreachable">Share nicht erreichbar. Die Offline-Kopie bleibt geöffnet.</string>
     <string name="msg_sync_other_server">Sync gestoppt: anderer Server.</string>

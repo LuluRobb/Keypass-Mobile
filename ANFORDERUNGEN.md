@@ -3,7 +3,7 @@
 Schlanke Android-App (Kotlin), um eine KeePassXC-Datenbank (KDBX) auf dem Handy zum **Ausfüllen** zu nutzen.
 Schwerpunkte:
 
-1. Die Datenbank direkt von einer **SMB-Freigabe** lesen, mit Offline-Kopie für unterwegs (ohne VPN).
+1. Die Datenbank direkt von einer **SMB-Freigabe** oder aus einer **Datei auf dem Handy** lesen, mit Offline-Kopie für unterwegs (ohne VPN).
 2. Zugangsdaten **ohne Zwischenablage** in Browser und Apps eintragen.
 
 Prioritäten: **MUSS** = MVP, **SOLL** = zweite Ausbaustufe, **KANN** = später / optional.
@@ -12,7 +12,7 @@ Festgelegte Rahmenbedingungen:
 
 - Nur Android, ein Nutzer, ein Gerät (aktuell Samsung Galaxy A55, One UI 8.5).
 - Umsetzung nativ in **Kotlin mit Jetpack Compose**, kein Flutter.
-- **Genau eine Datenbank**, Quelle ist eine SMB-Freigabe.
+- **Genau eine Datenbank**, Quelle ist eine SMB-Freigabe oder eine Datei auf dem Handy (immer nur eine von beiden, Abschnitt 1).
 - Die App ist **nur zum Ausfüllen**: Sie liest die Datenbank, bearbeitet und speichert aber nie etwas. Bearbeitet wird ausschließlich am PC in KeePassXC.
 - Die Offline-Kopie ist **immer nur die vollständige, verschlüsselte Datei**. Einzelne Passwörter oder entschlüsselte Inhalte werden **niemals** zwischengespeichert.
 - Entsperren per **Fingerabdruck** oder Master-Passwort. Das Master-Passwort muss in einstellbaren Abständen erneut eingegeben werden (Standard **alle 7 Tage**).
@@ -23,21 +23,36 @@ Festgelegte Rahmenbedingungen:
 
 ## 1. Datenquelle
 
+Die Quelle ist entweder eine SMB-Freigabe (DS-02 bis DS-07) oder eine Datei auf dem Handy (DS-08 bis DS-15), immer genau eine. Weitere Anforderungen zur Datei als Quelle stehen in EN-07, SY-09 und UI-07 bis UI-09.
+
 | ID | Anforderung | Prio |
 |----|-------------|------|
 | DS-01 | Genau eine Datenbank. In den Einstellungen: Quelle und Zeitpunkt des letzten Syncs | MUSS |
-| DS-02 | **SMB-Freigabe** (Windows-Freigabe, NAS): Eingegeben werden nur Host, Benutzer, Passwort und optional Port und Domäne (unter "Erweitert"). Nach dem Verbinden wählt man Freigabe und Datei interaktiv aus: Die App listet die Freigaben des Servers, man öffnet Ordner und tippt die KDBX-Datei an (angezeigt werden nur Ordner und `.kdbx`-Dateien). Den Namen der Freigabe von Hand eingeben nur als Ausweg, wenn der Server sie nicht auflistet. Beim Ändern der Quelle startet die Auswahl im Ordner der aktuellen Datei. Nur SMB 2/3, kein SMB 1. Die App braucht nur Leserecht. | MUSS |
+| DS-02 | **SMB-Freigabe** (Windows-Freigabe, NAS): Eingegeben werden nur Host, Benutzer, Passwort und optional Port und Domäne (unter "Erweitert"). Nach dem Verbinden wählt man Freigabe und Datei interaktiv aus: Die App listet die Freigaben des Servers, man öffnet Ordner und tippt die KDBX-Datei an (angezeigt werden nur Ordner und `.kdbx`-Dateien). Den Namen der Freigabe von Hand eingeben nur als Ausweg, wenn der Server sie nicht auflistet. Beim Ändern einer SMB-Quelle startet die Auswahl im Ordner der aktuellen Datei. Nur SMB 2/3, kein SMB 1. Die App braucht nur Leserecht. | MUSS |
 | DS-03 | Das SMB-Passwort liegt verschlüsselt im Android Keystore, nie im Klartext. Der Schlüssel ist ohne Fingerabdruck nutzbar, damit der Hintergrund-Sync (SY-06) laufen kann. Das gespeicherte Passwort dient nur diesem automatischen Sync: Beim Ändern der Quelle (auch bei entsperrter App) muss das SMB-Passwort immer neu eingegeben werden. | MUSS |
 | DS-04 | **Server-Identität prüfen:** Beim ersten erfolgreichen Sync merkt sich die App die Server-GUID, die der Server beim Verbindungsaufbau vor der Anmeldung schickt. Weicht sie später ab, bricht die App vor der Anmeldung ab und nutzt die Offline-Kopie. Bei einer legitimen Änderung (z. B. NAS neu aufgesetzt) fragt die App einmal nach. Das verhindert, dass sich die App in einem fremden Netz mit gleichem Adressbereich bei einem fremden Gerät anmeldet. Ohne Einstellungen, ohne SSID, ohne Standortberechtigung. Achtung: Samba bildet die GUID aus dem NetBIOS-Namen des Servers (nicht zufällig), Windows nutzt eine zufällige GUID. Bei Samba schützt die Prüfung daher nur, wenn der Servername unverwechselbar ist. | MUSS |
 | DS-05 | Kurzes Verbindungs-Timeout (wenige Sekunden), damit ein nicht erreichbarer Share nichts blockiert | MUSS |
 | DS-06 | Verbindung beim Einrichten prüfen. Das übernimmt das Verbinden in DS-02 (Fehler werden dort angezeigt), ein eigener Button "Verbindung testen" entfällt. | MUSS |
 | DS-07 | SMB-Signierung verlangen und Verschlüsselung nutzen, wenn der Server sie anbietet (Standard von `smbj`, im Prototyp geprüft) | MUSS |
 
-**Hinweise zur Einrichtung** (entscheidet der Nutzer auf dem Server, die App kann es nicht erzwingen):
+**Hinweise zur Einrichtung einer SMB-Quelle** (entscheidet der Nutzer auf dem Server, die App kann es nicht erzwingen):
 
 - Für die App einen eigenen SMB-Benutzer anlegen, der nur den Ordner mit der KDBX lesen darf.
 - Dem NAS einen unverwechselbaren Namen geben, keinen Standardnamen wie "DiskStation" oder "NAS" (wegen DS-04).
 - Als Host die IP-Adresse eintragen. Die Namensauflösung fällt nicht unter das Verbindungs-Timeout (DS-05).
+
+**Datei auf dem Handy als Quelle** (klickbarer UI-Entwurf mit allen Bildschirmen und Texten: https://claude.ai/artifact/KfMCnh64CRBB49s1u6ts3P, privat). Die genauen Texte stehen dort, die wichtigsten sind unten wörtlich übernommen.
+
+| ID | Anforderung | Prio |
+|----|-------------|------|
+| DS-08 | **Zwei Quellenarten, genau eine aktiv:** die SMB-Freigabe (DS-02) oder eine **Datei auf dem Handy**. Die Datei wählt man über das Android Storage Access Framework (`ACTION_OPEN_DOCUMENT`) mit dauerhafter Leseberechtigung auf die gewählte Datei (persistable read URI permission). Die App braucht keine Speicher-Berechtigung und liest die Datei nur. | SOLL |
+| DS-09 | **Dateiauswahl:** Mit `EXTRA_LOCAL_ONLY`, damit keine Cloud-Anbieter erscheinen. MIME-Filter `*/*`, weil KDBX keinen eigenen MIME-Typ hat. Ob die gewählte Datei eine KeePass-Datenbank ist, prüft die App danach selbst an der KDBX-Signatur. | SOLL |
+| DS-10 | **Startort der Auswahl** (`EXTRA_INITIAL_URI`), die erste zutreffende Regel gilt: (1) nach einem Fehler (DS-12) der Ordner der abgelehnten Datei, (2) beim Ändern einer Dateiquelle der Ordner der aktuellen Datei, (3) der zuletzt gewählte Ordner (`lastPickedFolder`), falls bekannt, (4) sonst die Wurzel des internen Speichers. Daraus folgt: Die erste Einrichtung beginnt an der Wurzel des internen Speichers. Hat der Nutzer in derselben Einrichtung schon eine Datei gewählt (zurück von Schritt 3 und neu wählen), beginnt die Auswahl im Ordner dieser Datei. Beim Wechsel von SMB zu Datei beginnt sie im zuletzt gewählten Ordner, falls bekannt, sonst an der Wurzel. `lastPickedFolder` wird bei jeder Auswahl gespeichert, auch bei einer abgelehnten (DS-12), und bleibt über Neustarts und Quellenwechsel erhalten. Die App hat keine Funktion, die die Quelle entfernt oder alle Einstellungen zurücksetzt; der Wert verschwindet nur mit den App-Daten (Deinstallation oder „Daten löschen“ in Android). Ob die Auswahl auf dem A55 wirklich dort startet, muss noch geprüft werden (Abschnitt 13). | SOLL |
+| DS-11 | **Keine Bestätigungsseite nach der Auswahl.** Die App prüft die Datei still. Dauert die Prüfung länger als 300 ms, zeigt sie die gemeinsame Ladeansicht mit „Lese Datei …“. Ist die Datei in Ordnung, geht es bei der Ersteinrichtung direkt zum Master-Passwort, beim Ändern der Quelle wird der Wechsel übernommen (DS-13). | SOLL |
+| DS-12 | **Fehler nach der Auswahl:** Zurück auf dem Bildschirm, von dem die Auswahl geöffnet wurde, zeigt die App eine lange Snackbar (im UI-Entwurf 10 Sekunden) mit der Aktion „Neu wählen“. Die Aktion öffnet die Auswahl wieder im Ordner der abgelehnten Datei (DS-10). Drei Texte, `%1$s` ist der Dateiname: `„%1$s“ ist keine KeePass-Datenbank.` / `„%1$s“ ließ sich nicht lesen.` / `Android gibt keinen dauerhaften Zugriff auf „%1$s“.` Der letzte Text ist nur ein Notnagel für den Fall, dass Android die dauerhafte Berechtigung verweigert. | SOLL |
+| DS-13 | **Quelle ändern, Meldung und Sperre:** Nach einem erfolgreichen Wechsel erscheint als einzige Meldung die Snackbar „Quelle gespeichert.“, ohne zusätzliche Hinweissätze davor oder danach. Die Sperrregel bleibt wie in der bestehenden Sitzungs- und Quellenwechsel-Logik, gilt jetzt aber für jeden Wechselweg (Datei zu Datei, Datei zu SMB, SMB zu Datei, SMB zu SMB): Öffnet sich die Datenbank der neuen Quelle mit dem Schlüssel im Arbeitsspeicher, wird nicht gesperrt. Sonst sperrt die App mit der bestehenden Meldung `Gesperrt: Neue Datenbank gewählt. Bitte mit ihrem Master-Passwort entsperren.` (`msg_locked_source_changed`). | SOLL |
+| DS-14 | **Dialog „Ältere Version“:** Nur beim Ändern der Quelle (bei der Ersteinrichtung nie, weil es noch keine geöffnete Version gibt) und bei beiden Quellenarten. Er erscheint, wenn die gewählte Datenbank ein älteres Änderungsdatum hat als die geöffnete Version. Titel „Ältere Version“, Text `„%1$s“ ist vom %2$s. Geöffnet ist der Stand vom %3$s.` (Dateiname, Änderungsdatum der gewählten Datei, Stand der geöffneten Version), Buttons „Abbrechen“ (verwirft die Auswahl, die Quelle bleibt unverändert) und „Trotzdem verwenden“ (führt den Wechsel weiter). Grund: Eine alte Kopie hat oft dasselbe Master-Passwort. Ohne den Dialog würde sie sich mit dem Schlüssel im Arbeitsspeicher öffnen und die Offline-Kopie stillschweigend auf den alten Stand zurücksetzen (SY-05 hilft nicht, die Datei lässt sich ja erfolgreich entsperren). Verglichen wird nur dieselbe Datenbank. **Dieselbe Datenbank** heißt: dieselbe UUID der Wurzelgruppe in der KDBX-Datei (sie entsteht mit der Datenbank und bleibt in allen Kopien gleich). Die Prüfung läuft nur, wenn sich die neue Datei mit dem Schlüssel im Arbeitsspeicher öffnen lässt. Dann erscheint der Dialog, wenn die Wurzelgruppe dieselbe UUID hat und die Datei älter ist als die geöffnete Version. Lässt sich die Datei nicht mit dem Schlüssel im Arbeitsspeicher öffnen, gibt es keinen Dialog und es gilt die Sperrregel aus DS-13. **Für die Umsetzung zu prüfen:** ob kotpass die UUID der Wurzelgruppe bereitstellt. | SOLL |
+| DS-15 | **Aufräumen beim Wechsel der Quellenart** (im Hintergrund nach dem Speichern, ohne Meldung auf dem Handy): Beim Wechsel von SMB zu Datei löscht die App das gespeicherte SMB-Passwort und die Server-Kennung (GUID). Beim Wechsel von Datei zu SMB gibt sie die dauerhafte Zugriffsberechtigung auf die Datei wieder ab. Beim Wechsel von einer Datei zu einer anderen Datei gibt sie die dauerhafte Zugriffsberechtigung der alten Datei ab, sodass die App immer nur eine hält. Die Berechtigung wird erst abgegeben, nachdem der Wechsel erfolgreich übernommen wurde, nie wenn der Nutzer abbricht (z. B. mit „Abbrechen“ im Dialog „Ältere Version“, DS-14). DS-03 und DS-04 gelten für SMB unverändert. | SOLL |
 
 ## 2. Offline-Kopie und Synchronisation
 
@@ -53,6 +68,7 @@ Der Share ist unterwegs ohne VPN nicht erreichbar. Dafür gibt es die Offline-Ko
 | SY-06 | **Hintergrund-Sync:** Ein periodischer Job lädt alle 4 Stunden eine neuere Datei, wenn der Share erreichbar ist. Er kann sie nicht entsperren und legt sie deshalb als Kandidat neben die Offline-Kopie. Beim nächsten Entsperren wird zuerst der Kandidat versucht. Gelingt das, ersetzt er die Offline-Kopie. | MUSS |
 | SY-07 | Manueller "Jetzt synchronisieren"-Button. Ist die Datenbank entsperrt, läuft er wie SY-04, sonst wie SY-06. | MUSS |
 | SY-08 | Anzeige, ob die aktuelle Version vom Share oder eine ältere Offline-Kopie geöffnet ist, inkl. Zeitpunkt des letzten erfolgreichen Syncs. "Aktuell" steht nur, wenn die geöffnete Version vom Share kam und seit dem letzten erfolgreichen Sync kein Problem aufgetreten ist (Share nicht erreichbar, Anmeldung fehlgeschlagen, Datei nicht gefunden, kein Zugriff, anderer Server); sonst steht "Offline-Kopie" mit dem passenden Grund und dem Stand des letzten erfolgreichen Syncs. | MUSS |
+| SY-09 | **Datei als Quelle:** Auch eine Datei auf dem Handy (DS-08) behält ihre eigene, verschlüsselte Offline-Kopie und gleicht sie alle 4 Stunden ab. Dieser Abschnitt gilt unverändert, einschließlich SY-05. Die Datei übernimmt dabei die Rolle des Shares. Die Gründe für "Offline-Kopie" sind bei einer Datei "Datei nicht gefunden" und "Kein Zugriff mehr" (UI-09). | SOLL |
 
 ## 3. KDBX-Kompatibilität (KeePassXC)
 
@@ -76,6 +92,7 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 | EN-04 | Wird ein neuer Fingerabdruck registriert, wird der Keystore-Schlüssel ungültig. Danach muss einmal das Master-Passwort eingegeben werden. | MUSS |
 | EN-05 | Das Master-Passwort muss nach einer einstellbaren Frist erneut eingegeben werden: 1, 3, 7 oder 14 Tage, Standard **7 Tage**. Die App prüft das selbst, zusätzlich bekommt der Keystore-Schlüssel bei jeder Passworteingabe ein Ablaufdatum nach dieser Frist. Eine kürzere Frist greift sofort, eine längere erst ab der nächsten Passworteingabe, weil sich das Ablaufdatum des Schlüssels nicht verlängern lässt. Nach Ablauf wird der gespeicherte Wert gelöscht. | MUSS |
 | EN-06 | Lässt sich die Datei mit dem gespeicherten Wert nicht öffnen (z. B. weil das Master-Passwort am PC geändert wurde), fragt die App nach dem Master-Passwort und speichert den neuen Wert. Lässt sich ein Kandidat (SY-06) mit dem eingegebenen Passwort nicht öffnen, öffnet die App die Offline-Kopie und weist darauf hin. | MUSS |
+| EN-07 | **Zeile unter dem Datenbanknamen:** Der Entsperrbildschirm zeigt bei beiden Quellenarten unter dem Namen „<Ort> · geändert <Datum>“, also wo die Datenbank liegt und wann die Datei zuletzt geändert wurde. So sieht man, welcher Stand geöffnet wird. Bei einer SMB-Quelle ist der Ort der Pfad, wie ihn der Nutzer eingegeben hat. Die Infokarte beim ersten Entsperren entfällt ganz, mit beiden Varianten („Die App speichert nicht dein Passwort ...“, `unlock_first_run_info`, und die Variante ohne Fingerabdruck, `unlock_first_run_info_no_fingerprint`). | SOLL |
 
 ## 5. Ausfüllen ohne Zwischenablage (Kernfunktion)
 
@@ -99,10 +116,25 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 |----|-------------|------|
 | UI-01 | **Eine Ansicht für App und Autofill:** Liste aller Einträge mit Volltextsuche über Titel, Benutzername, URL, Notizen, Tags und Gruppe (nur im Arbeitsspeicher, kein gespeicherter Index). Die Liste ist nach Gruppen gegliedert: ein Abschnitt pro Gruppe mit dem Gruppenpfad als Überschrift (inkl. Untergruppen), darin A–Z, darüber Filter nach Hauptgruppe. Suchergebnisse erscheinen als eine Liste mit der Gruppe in jeder Zeile. Kein aufklappbarer Gruppenbaum, keine Sortierung nach zuletzt benutzt (die App speichert nichts über die Nutzung). Im Autofill stehen darüber die passenden Einträge (AF-05). | MUSS |
 | UI-02 | Direkt geöffnet: Ein Tipp auf einen Eintrag öffnet eine knappe Ansicht mit Icon, Titel, Adresse (URL), Gruppe, Benutzername, Notizen und den Buttons "Benutzername kopieren" und "Passwort kopieren" (AF-09). Das Passwort ist zunächst verdeckt und lässt sich mit einem Augen-Symbol ein- und ausblenden. Es wird wieder verdeckt und aus dem Speicher entfernt beim Verlassen der Ansicht, beim Sperren und wenn die App in den Hintergrund geht. | MUSS |
-| UI-03 | Einstellungen: SMB-Quelle, Sync-Status mit "Jetzt synchronisieren" (SY-07, SY-08), Fingerabdruck an/aus, Frist für das Master-Passwort (EN-05), Zeit bis zur automatischen Sperre (SE-02) | MUSS |
+| UI-03 | Einstellungen: Quelle (UI-08), Sync-Status mit "Jetzt synchronisieren" (SY-07, SY-08), Fingerabdruck an/aus, Frist für das Master-Passwort (EN-05), Zeit bis zur automatischen Sperre (SE-02) | MUSS |
 | UI-04 | Hell/Dunkel nach Systemeinstellung. Sprache nur Deutsch. | MUSS |
 | UI-05 | Eintrags-Icons aus der Datenbank anzeigen: eigene Icons (z. B. in KeePassXC heruntergeladene Favicons) direkt aus der KDBX, Standard-Icons (KeePass-Icon-Nummern) über eine eigene Zuordnung zu Material-Symbolen. Nichts wird aus dem Netz nachgeladen (SE-06). | MUSS |
 | UI-06 | Am Ende der Einrichtung zwei Hinweise mit je einem Button, der die passende Systemeinstellung öffnet: KeyPass Mobile als Autofill-Dienst wählen (AF-01) und Benachrichtigungen erlauben (ab Android 13 nötig für die Benachrichtigung aus SE-03). Beides ist auch später aus den Einstellungen erreichbar. | MUSS |
+| UI-07 | **Einrichtung mit zwei Quellenarten:** Der erste Bildschirm heißt „Wo liegt deine Datenbank?“ und bietet die beiden Quellenarten an (SMB-Freigabe, Datei auf dem Handy), danach folgt der Server bzw. die Datei. Beide Wege haben vier Schritte: Quelle, Datei, Master-Passwort, System. Bei einer Datei ist die Dateiauswahl von Android der Schritt 2 (DS-09 bis DS-12). Im Serverformular entfällt der Hilfetext „Am besten ein eigener Benutzer ...“ (`setup_field_user_helper`). | SOLL |
+| UI-08 | **Quelle in den Einstellungen:** Der Abschnitt heißt „Quelle“ (bisher „Datenbank“, `settings_section_database`). Oben steht ein einzelner Eintrag, der die aktuelle Quelle nur anzeigt, nichts lässt sich dort ändern. Bei einer Datei: Art, Dateiname, Ort. Bei SMB: Art, Pfad, Benutzer, Servername mit „gemerkt am“ und Datum, Server-GUID. Darunter steht die Zeile „Quelle verwalten“. Sie öffnet eine einfache Liste ohne Abschnittsüberschriften und ohne Unterzeilen. Bei einer Dateiquelle: „Andere Datei wählen“ und „Zu SMB-Freigabe wechseln“. Bei einer SMB-Quelle: „SMB-Freigabe ändern“ und „Zu Datei wechseln“. Die Zeile „Quelle verwalten“ hat keine Unterzeile, und der Eintrag einer Dateiquelle hat keine Zeile „Nur Lesezugriff auf diese Datei“. Der Titel dieses Bildschirms (`setup_edit_source_title`) ist „Quelle verwalten“ (bisher „Quelle ändern“). Die Wege sind DS-02, DS-03 (SMB-Passwort immer neu) und DS-09 bis DS-15. | SOLL |
+| UI-09 | **Hinweis in der Liste, wenn die Datenbank fehlt oder der Zugriff weg ist, für beide Quellenarten.** Bei einer Datei: „Datei nicht gefunden“ oder „Kein Zugriff mehr“, jeweils mit der Aktion „Datei neu wählen“ (öffnet die Dateiauswahl, DS-10). Bei SMB drei Ursachen mit je Titel, Text und Aktion: Datei nicht gefunden, Kein Zugriff, Anmeldung fehlgeschlagen. Die Aktionen führen in das SMB-Serverformular, das Passwort ist wegen DS-03 leer. Der bestehende Hinweis und Dialog „Anderer Server“ (DS-04) bleibt unverändert. Ein nur nicht erreichbarer Share ist normale Offline-Nutzung und bekommt keinen Hinweis. Der Sync-Status in den Einstellungen nennt dazu den Grund und zeigt dieselbe Aktion als Button (beim anderen Server weiter nur der Dialog). Es steht höchstens ein Hinweis gleichzeitig über der Liste. Ein Hinweis zu fehlender Quelle (Datei nicht gefunden, Kein Zugriff mehr oder eine der drei SMB-Ursachen) hat Vorrang vor dem Hinweis „Neue Version abgelehnt“ (`NewVersionRejected`), weil es ohne erreichbare Quelle keine neue Version gibt. Funktioniert die Quelle wieder, gelten die normalen Regeln. Die Aktionen laufen wie ein Quellenwechsel (DS-13, DS-14). Hinweis zum Stand der App: Die drei SMB-Ursachen (`NOT_FOUND`, `ACCESS_DENIED`, `AUTH_FAILED`) erscheinen bisher nur in den Einstellungen (`SyncMapping.offlineReason`), der Hinweis in der Liste dafür ist neu. | SOLL |
+
+**Texte zu UI-07 und UI-09** (aus dem UI-Entwurf, `<Datum>` ist der Stand der Offline-Kopie, `<Benutzer>` der SMB-Benutzer):
+
+- Einrichtung, Überschrift „Wo liegt deine Datenbank?“, darunter: „KeyPass Mobile liest die KDBX-Datei nur und behält eine verschlüsselte Kopie für unterwegs.“
+- Einrichtung, Auswahl „SMB-Freigabe“: „NAS oder Windows-PC im Heimnetz. Unterwegs ohne VPN gilt die Kopie auf dem Handy.“
+- Einrichtung, Auswahl „Datei auf dem Handy“: „Zum Beispiel in einem Ordner, den Syncthing aktuell hält. Du wählst sie in der Dateiauswahl von Android.“
+- Datei, nicht gefunden: Titel „Datei nicht gefunden“, Text „Geöffnet ist die Offline-Kopie vom <Datum>. Wähl die Datei neu, damit die App wieder abgleichen kann.“, Aktion „Datei neu wählen“. Status in den Einstellungen „Datei nicht gefunden“, Grund „Die Datei wurde verschoben, umbenannt oder gelöscht.“
+- Datei, kein Zugriff: Titel „Kein Zugriff mehr auf die Datei“, Text und Aktion wie oben. Status „Kein Zugriff mehr“, Grund „Android lässt die App die Datei nicht mehr lesen. Wählst du sie neu, gibt Android den Zugriff wieder frei.“
+- SMB, nicht gefunden: Titel „Datei nicht gefunden“, Text „Auf dem Share liegt sie nicht mehr. Geöffnet ist die Offline-Kopie vom <Datum>. Wähl die Datei neu, damit die App wieder abgleichen kann.“, Aktion „Datei neu wählen“. Status „Datei nicht gefunden“, Grund „Die Datei liegt nicht mehr auf dem Share.“
+- SMB, kein Zugriff: Titel „Kein Zugriff auf die Datei“, Text „Der Server lässt <Benutzer> die Datei nicht mehr lesen. Geöffnet ist die Offline-Kopie vom <Datum>. Prüf die Rechte auf dem Share oder wähl eine andere Datei.“, Aktion „SMB-Freigabe ändern“. Status „Kein Zugriff“, Grund „Der Server lässt <Benutzer> die Datei nicht mehr lesen.“
+- SMB, Anmeldung fehlgeschlagen: Titel „Anmeldung fehlgeschlagen“, Text „Der Server hat die Anmeldung von <Benutzer> abgelehnt. Geöffnet ist die Offline-Kopie vom <Datum>. Gib die Zugangsdaten neu ein, damit die App wieder abgleichen kann.“, Aktion „SMB-Freigabe ändern“. Status „Anmeldung fehlgeschlagen“, Grund „Der Server hat die Anmeldung von <Benutzer> abgelehnt.“
+- `<Datum>` in diesen Texten (und in „Geöffnet ist die Offline-Kopie …“ im Sync-Status der Einstellungen): Ist der Stand von heute, steht „von heute, 00:33“, sonst „vom 28.10., 08:12“ (nicht „vom 00:33“).
 
 ## 7. Sicherheit
 
@@ -139,7 +171,7 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 - Technik: Kotlin mit Jetpack Compose. UI, Autofill-Dienst, Sync und der entsperrte Zustand laufen in einem Prozess.
 - Entsperren (vom Fingerabdruck bzw. Bestätigen des Passworts bis zur Eintragsliste) dauert auf dem Zielgerät **höchstens 2 Sekunden**. Wird das verfehlt, die Entschlüsselungszeit in den Sicherheitseinstellungen der Datenbank in KeePassXC senken.
 - Datenbanken mit mehreren tausend Einträgen sind flüssig durchsuchbar.
-- Verteilung: privat als signierte Release-APK. Den Signaturschlüssel sicher und außerhalb des Repos aufbewahren. Updates lassen sich nur mit demselben Schlüssel über eine installierte Version installieren. Geht der Schlüssel verloren, muss die App neu installiert und eingerichtet werden. Daten gehen dabei nicht verloren, weil die Datenbank auf dem Share liegt.
+- Verteilung: privat als signierte Release-APK. Den Signaturschlüssel sicher und außerhalb des Repos aufbewahren. Updates lassen sich nur mit demselben Schlüssel über eine installierte Version installieren. Geht der Schlüssel verloren, muss die App neu installiert und eingerichtet werden. Daten gehen dabei nicht verloren, weil die Datenbank auf dem Share bzw. als Datei auf dem Handy liegt (bei einer Dateiquelle ist die Datei danach neu zu wählen, DS-08).
 - Die App bleibt "simpel": kein eigener Cloud-Dienst, kein Konto, kein Abo.
 - Quellcode offen (Lizenzen der verwendeten Bibliotheken prüfen; KeePassXC selbst steht unter GPL, das KDBX-Format ist offen dokumentiert).
 
@@ -173,7 +205,8 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
    - Hell/Dunkel, SMB-Signierung und -Verschlüsselung (fallen mit Compose bzw. `smbj` praktisch ohne Aufwand ab)
 2. **Stufe 2:**
    - Eigene Tastatur (AF-10)
-3. **Später:** Schlüsseldatei, YubiKey, Passkeys, KDBX 3.1 / AES-KDF / Twofish, Sperren beim Ausschalten des Displays, lokale Datei als Quelle (Android Storage Access Framework).
+   - Datei auf dem Handy als Quelle über das Android Storage Access Framework (DS-08 bis DS-15, EN-07, SY-09, UI-07 bis UI-09), inklusive Hinweis in der Liste auch bei SMB
+3. **Später:** Schlüsseldatei, YubiKey, Passkeys, KDBX 3.1 / AES-KDF / Twofish, Sperren beim Ausschalten des Displays.
 
 ## 11. Nicht im Umfang
 
@@ -184,7 +217,7 @@ Die App liest nur. Schreiben ist nicht vorgesehen.
 - TOTP (wird nicht genutzt)
 - Entsperren per Display-PIN, Muster oder Gesichtserkennung
 - Zuordnung von Apps über `androidapp://`-URLs in der Datenbank
-- WebDAV, SFTP, Cloud-APIs (Nextcloud, OneDrive, Google Drive ...)
+- WebDAV, SFTP, Cloud-APIs (Nextcloud, OneDrive, Google Drive ...). Auch in der Dateiauswahl für die Datei auf dem Handy erscheinen keine Cloud-Anbieter (DS-09).
 - KeePassXC-Browser-Protokoll, SSH-Agent, Secret Service
 - Eigener Sync-Server oder Cloud-Dienst
 - Import/Export anderer Formate (CSV, 1Password, Bitwarden ...)
@@ -245,3 +278,20 @@ Vor dem MVP entschieden (01.11.2026):
 Nach dem Test auf dem A55 entschieden (06.11.2026, Entscheidung des Projektinhabers):
 
 - **Kein automatisches Löschen der Zwischenablage** (AF-09, UI-03, SE-03). Die App löscht kopierte Benutzernamen und Passwörter weder nach einer Zeit noch beim Sperren. Die Einstellung "Kopiertes löschen nach" (15, 30 oder 60 Sekunden) ist entfallen, ebenso der Hinweis zur Samsung-Tastatur. Grund: Das Löschen ist unzuverlässig. Tastaturen mit eigenem Zwischenablage-Verlauf (z. B. die Samsung-Tastatur auf dem A55) behalten den kopierten Wert trotzdem, und diesen Verlauf kann die App nicht löschen. Der Aufwand dafür (Löschmarke mit Keystore-HMAC, Alarm als Rückfallebene, Prüfung beim Start und beim Fortsetzen) steht in keinem Verhältnis zum Nutzen. Kopiertes bleibt in der Zwischenablage, bis etwas anderes kopiert wird. Es wird weiterhin als sensibel markiert, damit Android die Vorschau ausblendet. Der bevorzugte Weg bleibt Autofill (AF-01).
+
+Datei auf dem Handy als Quelle (06.11.2026, Entscheidung des Projektinhabers im klickbaren UI-Entwurf https://claude.ai/artifact/KfMCnh64CRBB49s1u6ts3P, privat):
+
+- Die Datei ist neben der SMB-Freigabe eine zweite Quellenart und steht nicht mehr unter "Später". Die Entscheidungen stehen in DS-08 bis DS-15, EN-07, SY-09 und UI-07 bis UI-09, Cloud-APIs bleiben außerhalb des Umfangs (Abschnitt 11).
+- Der Hinweis in der Liste bei fehlender Datenbank oder verlorenem Zugriff gilt für beide Quellenarten, auch für SMB (UI-09).
+- Offen: Startet die Dateiauswahl auf dem Samsung A55 wirklich am gewünschten Ort (`EXTRA_INITIAL_URI`, DS-10)?
+- Entschieden: Für den Dialog "Ältere Version" gilt dieselbe UUID der Wurzelgruppe als dieselbe Datenbank, geprüft nur bei einer Datei, die sich mit dem Schlüssel im Arbeitsspeicher öffnen lässt (DS-14).
+- Geprüft: kotpass stellt die UUID der Wurzelgruppe bereit (DS-14), als `DatabaseContent.group.uuid` (kotpass 0.13.0). Fehlt sie in der Datei, bricht kotpass schon beim Lesen ab, der Wert stammt also immer aus der Datei.
+- Umgesetzt, Test offen. Auf dem A55 prüfen:
+  - Startet die Dateiauswahl in allen vier Fällen von DS-10 wirklich am gewünschten Ort?
+  - Blendet `EXTRA_LOCAL_ONLY` Google Drive, OneDrive und Samsung Cloud aus?
+  - Ortstexte und Titel der Wurzeln bei SD-Karte und anderen Anbietern. Eine normale App kann Wurzeltitel und `findDocumentPath` vermutlich nicht abfragen, die Rückfallebene ist dann kein Ortstext.
+  - `raw:`-Ordner in Downloads als Startort.
+  - Syncthing: Behält es die Änderungszeit, bleibt die URI stabil, und überlebt die Berechtigung das Ersetzen der Datei und einen Neustart?
+  - Der 4-Stunden-Job ohne Netz unter der Akku-Optimierung von One UI.
+  - Wird die gespeicherte Berechtigung zuverlässig erkannt? Der URI-Text der gewählten Datei muss dem Eintrag in `persistedUriPermissions` entsprechen, auch nach einem Neustart des Handys und nachdem Syncthing die Datei ersetzt hat.
+  - Anbieter ohne Änderungsdatum: Eine Änderung ohne Größenänderung würde nicht erkannt. Der interne Speicher und Downloads liefern beides; prüfen, welche Anbieter auf dem A55 tatsächlich vorkommen.

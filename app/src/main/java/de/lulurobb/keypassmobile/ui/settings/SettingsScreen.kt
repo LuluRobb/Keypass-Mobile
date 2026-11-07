@@ -1,6 +1,9 @@
 package de.lulurobb.keypassmobile.ui.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -26,13 +30,17 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import de.lulurobb.keypassmobile.R
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.ui.common.MessageHost
+import de.lulurobb.keypassmobile.ui.common.SourceAction
 import de.lulurobb.keypassmobile.ui.common.UiMessage
+import de.lulurobb.keypassmobile.ui.list.SourceProblem
+import de.lulurobb.keypassmobile.ui.list.reasonText
 import de.lulurobb.keypassmobile.ui.common.breakAfter
 import de.lulurobb.keypassmobile.ui.common.formatDate
 import de.lulurobb.keypassmobile.ui.common.formatDayMonth
-import de.lulurobb.keypassmobile.ui.common.formatStamp
 import de.lulurobb.keypassmobile.ui.common.relativeStamp
+import de.lulurobb.keypassmobile.ui.common.sinceStamp
 import de.lulurobb.keypassmobile.ui.components.ChoiceRow
 import de.lulurobb.keypassmobile.ui.components.KpmTopBar
 import de.lulurobb.keypassmobile.ui.components.NavAction
@@ -56,12 +64,22 @@ data class SourceInfo(val host: String, val share: String, val path: List<String
 /** Remembered server identity (DS-04). */
 data class ServerIdentity(val name: String, val rememberedOn: LocalDate, val guid: String)
 
+/** The configured source as the read-only entry of the section "Quelle" (DS-01). */
+sealed interface SourceEntry {
+    /** SMB share with the remembered server, null while none is remembered. */
+    data class Smb(val info: SourceInfo, val server: ServerIdentity?) : SourceEntry
+
+    /** File on the phone: [place] is null when the provider gave none. */
+    data class File(val fileName: String, val place: String?) : SourceEntry
+}
+
 enum class FingerprintAvailability { Available, NoneEnrolled, NoHardware }
 
 data class SettingsState(
-    val source: SourceInfo,
-    val server: ServerIdentity?,
+    val source: SourceEntry,
     val sync: SyncState,
+    /** What is wrong with the source (UI-09): gives the reason text and the fix button of the sync status. */
+    val sourceProblem: SourceProblem? = null,
     val fingerprintEnabled: Boolean,
     val fingerprintAvailability: FingerprintAvailability = FingerprintAvailability.Available,
     /** Date when the master password is due again (EN-05); null when fingerprint is off. */
@@ -79,6 +97,7 @@ data class SettingsState(
 }
 
 /** Settings (UI-03, DS-01, SY-07, SY-08, EN-05, SE-02). Every control saves itself. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     state: SettingsState,
@@ -91,8 +110,11 @@ fun SettingsScreen(
     onOpenAutofillSettings: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Fix button of the sync status for a source problem (UI-09). */
+    onSourceAction: (SourceAction) -> Unit = {},
     message: UiMessage? = null,
     onMessageDismissed: () -> Unit = {},
+    onMessageAction: () -> Unit = {},
 ) {
     val scheme = MaterialTheme.colorScheme
     Scaffold(
@@ -110,6 +132,7 @@ fun SettingsScreen(
                 message,
                 onMessageDismissed,
                 Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
+                onAction = onMessageAction,
             )
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
@@ -122,50 +145,47 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues()),
         ) {
-            SectionLabel(stringResource(R.string.settings_section_database), topPadding = 8.dp)
+            SectionLabel(stringResource(R.string.settings_section_source), topPadding = 8.dp)
+            // Read-only: no click and no chevron. Changing goes through "Quelle verwalten".
+            SourceEntryRow(state.source)
             SettingsRow(
-                icon = KpmIcons.Server,
-                title = stringResource(R.string.settings_source),
-                sublines = listOf(
-                    SettingsSubline(breakAfter(state.source.unc, "\\"), monospace = true),
-                    SettingsSubline(stringResource(R.string.settings_source_user, state.source.user)),
-                ),
+                icon = KpmIcons.Tune,
+                title = stringResource(R.string.settings_manage_source),
                 onClick = onEditSource,
                 trailing = { KpmIcon(KpmIcons.ChevronRight, null, tint = scheme.onSurfaceVariant) },
             )
-            state.server?.let { server ->
-                SettingsRow(
-                    icon = KpmIcons.Key,
-                    title = stringResource(R.string.settings_server),
-                    sublines = listOf(
-                        SettingsSubline(stringResource(R.string.settings_server_remembered, server.name, formatDate(server.rememberedOn))),
-                        SettingsSubline(breakAfter(server.guid, "-"), monospace = true),
-                    ),
-                )
-            }
 
             SectionLabel(stringResource(R.string.settings_section_sync))
-            SyncRow(state.sync)
-            OutlinedButton(
-                onClick = onSyncNow,
-                enabled = !state.sync.syncing,
-                // While syncing the button stays readable; it only stops taking taps.
-                colors = ButtonDefaults.outlinedButtonColors(disabledContentColor = scheme.primary.copy(alpha = 0.7f)),
-                modifier = Modifier.padding(start = ScreenPadding + 40.dp, top = 4.dp),
+            SyncRow(state.sync, state.sourceProblem, state.source)
+            FlowRow(
+                modifier = Modifier.padding(start = ScreenPadding + 40.dp, end = ScreenPadding, top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (state.sync.syncing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = LocalContentColor.current,
-                    )
-                } else {
-                    KpmIcon(KpmIcons.Sync, null, Modifier.size(18.dp))
+                state.sourceProblem?.let { problem ->
+                    FilledTonalButton(onClick = { onSourceAction(problem.action) }) {
+                        Text(stringResource(problem.actionLabel))
+                    }
                 }
-                Text(
-                    stringResource(if (state.sync.syncing) R.string.sync_chip_syncing else R.string.settings_sync_now),
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+                OutlinedButton(
+                    onClick = onSyncNow,
+                    enabled = !state.sync.syncing,
+                    // While syncing the button stays readable; it only stops taking taps.
+                    colors = ButtonDefaults.outlinedButtonColors(disabledContentColor = scheme.primary.copy(alpha = 0.7f)),
+                ) {
+                    if (state.sync.syncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = LocalContentColor.current,
+                        )
+                    } else {
+                        KpmIcon(KpmIcons.Sync, null, Modifier.size(18.dp))
+                    }
+                    Text(
+                        stringResource(if (state.sync.syncing) R.string.sync_chip_syncing else R.string.settings_sync_now),
+                        modifier = Modifier.padding(start = 8.dp),
+                    )
+                }
             }
 
             SectionLabel(stringResource(R.string.settings_section_unlock))
@@ -253,38 +273,88 @@ fun SettingsScreen(
     }
 }
 
+/** The entry of the current source: SMB with path, user and server, file with name and place. */
 @Composable
-private fun SyncRow(sync: SyncState) {
+private fun SourceEntryRow(entry: SourceEntry) {
+    when (entry) {
+        is SourceEntry.Smb -> SettingsRow(
+            icon = KpmIcons.Server,
+            title = stringResource(R.string.source_kind_smb),
+            sublines = buildList {
+                add(SettingsSubline(breakAfter(entry.info.unc, "\\"), monospace = true))
+                add(SettingsSubline(stringResource(R.string.settings_source_user, entry.info.user)))
+                entry.server?.let {
+                    add(SettingsSubline(stringResource(R.string.settings_source_server, it.name, formatDate(it.rememberedOn))))
+                    add(SettingsSubline(breakAfter(it.guid, "-"), monospace = true))
+                }
+            },
+        )
+        is SourceEntry.File -> SettingsRow(
+            icon = KpmIcons.File,
+            title = stringResource(R.string.source_kind_file),
+            sublines = listOfNotNull(
+                SettingsSubline(entry.fileName),
+                entry.place?.let { SettingsSubline(it) },
+            ),
+        )
+    }
+}
+
+@Composable
+private fun SyncRow(sync: SyncState, problem: SourceProblem?, source: SourceEntry) {
     val status = sync.status
+    val smb = source as? SourceEntry.Smb
+    val background = stringResource(
+        if (sync.kind == SourceKind.FILE) R.string.settings_sync_background_file else R.string.settings_sync_background_smb,
+    )
     val (icon, title, detail) = when (status) {
         is SyncStatus.Current -> Triple(
             KpmIcons.CheckCircle,
             stringResource(R.string.settings_sync_current),
-            status.loadedAt
-                ?.let { stringResource(R.string.settings_sync_current_text, relativeStamp(it)) }
-                ?: stringResource(R.string.settings_sync_current_text_undated),
+            if (sync.kind == SourceKind.FILE) {
+                status.loadedAt
+                    ?.let { stringResource(R.string.settings_sync_current_text_file, relativeStamp(it)) }
+                    ?: stringResource(R.string.settings_sync_current_text_file_undated)
+            } else {
+                status.loadedAt
+                    ?.let { stringResource(R.string.settings_sync_current_text, relativeStamp(it)) }
+                    ?: stringResource(R.string.settings_sync_current_text_undated)
+            },
         )
-        is SyncStatus.OfflineCopy -> Triple(
-            KpmIcons.CloudOff,
-            stringResource(
-                when (status.reason) {
-                    null -> R.string.sync_chip_syncing
-                    OfflineReason.ShareUnreachable -> R.string.settings_sync_offline
-                    OfflineReason.OtherServer -> R.string.settings_sync_other_server
-                    OfflineReason.NewVersionRejected -> R.string.banner_candidate_title
-                    OfflineReason.LoginFailed -> R.string.settings_sync_login_failed
-                    OfflineReason.FileNotFound -> R.string.settings_sync_file_not_found
-                    OfflineReason.NoAccess -> R.string.settings_sync_no_access
-                },
-            ),
-            status.copyFrom
-                ?.let { stringResource(R.string.settings_sync_offline_text, formatStamp(it)) }
-                ?: stringResource(R.string.settings_sync_offline_text_undated),
-        )
+        is SyncStatus.OfflineCopy -> {
+            val copy = status.copyFrom
+                ?.let { stringResource(R.string.settings_sync_offline_text, sinceStamp(it)) }
+                ?: stringResource(R.string.settings_sync_offline_text_undated)
+            // Only a known cause gets a sentence (D6: other file problems and plain offline have none).
+            val why = when {
+                problem != null -> problem.reasonText(smb?.info?.user)
+                status.reason == OfflineReason.OtherServer && smb != null ->
+                    stringResource(R.string.banner_other_server_text, smb.info.host)
+                else -> null
+            }
+            Triple(
+                KpmIcons.CloudOff,
+                stringResource(
+                    when (status.reason) {
+                        null -> R.string.sync_chip_syncing
+                        OfflineReason.ShareUnreachable -> R.string.settings_sync_offline
+                        OfflineReason.OtherServer -> R.string.settings_sync_other_server
+                        OfflineReason.NewVersionRejected -> R.string.banner_candidate_title
+                        OfflineReason.LoginFailed -> R.string.settings_sync_login_failed
+                        OfflineReason.FileNotFound -> R.string.settings_sync_file_not_found
+                        OfflineReason.NoAccess -> R.string.settings_sync_no_access
+                        OfflineReason.LocalFileNotFound -> R.string.settings_sync_file_not_found
+                        OfflineReason.LocalFileNoAccess -> R.string.settings_sync_no_access_file
+                        OfflineReason.LocalFileProblem -> R.string.settings_sync_offline_copy
+                    },
+                ),
+                if (why != null) "$copy $why" else copy,
+            )
+        }
     }
     SettingsRow(
         icon = icon,
         title = title,
-        sublines = listOf(SettingsSubline(detail)),
+        sublines = listOf(SettingsSubline(detail), SettingsSubline(background)),
     )
 }

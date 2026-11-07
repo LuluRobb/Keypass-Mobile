@@ -48,11 +48,16 @@ internal class LocalStore(private val dir: File) {
     /** The offline copy of the previous source until the new file opened (see SyncEngine.markSourceChanged). */
     val previousOffline = File(dir, "offline-previous.kdbx")
     val download = File(dir, "download.tmp")
+
+    /** Temporary download of [SyncEngine.probeOpen]; never becomes a database file. */
+    val probe = File(dir, "probe.tmp")
     private val stateFile = File(dir, "sync-state.properties")
     private val stateTemp = File(dir, "sync-state.properties.tmp")
 
     init {
         dir.mkdirs()
+        // A crash during a probe leaves its download behind; nothing uses it afterwards.
+        deleteQuietly(probe)
     }
 
     /** Reads the state file; missing or unreadable values count as unknown. */

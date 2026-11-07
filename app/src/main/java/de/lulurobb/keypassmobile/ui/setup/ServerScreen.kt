@@ -85,13 +85,14 @@ data class ServerFormState(
     val connecting: Boolean = false,
     val invalidFields: Set<ServerField> = emptySet(),
     val error: ConnectError? = null,
-    /** Null: changing the source from the settings, with back arrow and without intro. */
+    /** Null: changing the source ("Quelle verwalten"), without intro and step. */
     val step: SetupStep? = SetupStep(1),
 )
 
 /**
- * Setup step 1 and changing the source (DS-02): host, user, password, port and
- * domain under "Erweitert". The SMB password lives in [password] (caller owned).
+ * Setup step 1 after the choice "SMB-Freigabe", and changing the source (DS-02): host, user,
+ * password, port and domain under "Erweitert". The SMB password lives in [password] (caller owned).
+ * The back arrow is always there: in the first run it goes back to the choice.
  */
 @Composable
 fun ServerScreen(
@@ -135,7 +136,7 @@ fun ServerScreen(
         topBar = {
             KpmTopBar(
                 title = stringResource(if (editing) R.string.setup_edit_source_title else R.string.setup_title),
-                navigation = if (editing) NavAction(KpmIcons.Back, stringResource(R.string.action_back), onBack) else null,
+                navigation = NavAction(KpmIcons.Back, stringResource(R.string.action_back), onBack),
                 step = state.step,
             )
         },
@@ -178,7 +179,6 @@ fun ServerScreen(
                     value = state.user,
                     onValueChange = onUserChange,
                     label = stringResource(R.string.setup_field_user),
-                    helper = stringResource(R.string.setup_field_user_helper),
                     error = if (ServerField.User in state.invalidFields) stringResource(R.string.setup_error_user_missing) else null,
                     enabled = enabled,
                     modifier = Modifier.padding(top = 8.dp),

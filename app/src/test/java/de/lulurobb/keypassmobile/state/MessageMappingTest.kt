@@ -7,6 +7,7 @@ import de.lulurobb.keypassmobile.platform.session.FingerprintSetupResult
 import de.lulurobb.keypassmobile.platform.session.LockReason
 import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -16,19 +17,51 @@ class MessageMappingTest {
 
     @Test
     fun `every sync result has its message`() {
-        assertEquals(UiMessage.SyncNoNewer, syncResultMessage(SyncResult.UpToDate))
-        assertEquals(UiMessage.SyncUpdated, syncResultMessage(SyncResult.Updated))
-        assertEquals(UiMessage.DatabaseLoaded, syncResultMessage(SyncResult.CandidateReady))
-        assertNull(syncResultMessage(SyncResult.NewVersionRejected))
-        assertNull(syncResultMessage(SyncResult.NotConfigured))
+        assertEquals(UiMessage.SyncNoNewer, syncResultMessage(SyncResult.UpToDate, SourceKind.SMB))
+        assertEquals(UiMessage.SyncUpdated, syncResultMessage(SyncResult.Updated, SourceKind.SMB))
+        assertEquals(UiMessage.DatabaseLoaded, syncResultMessage(SyncResult.CandidateReady, SourceKind.SMB))
+        assertNull(syncResultMessage(SyncResult.NewVersionRejected, SourceKind.SMB))
+        assertNull(syncResultMessage(SyncResult.NotConfigured, SourceKind.SMB))
+    }
+
+    @Test
+    fun `every sync result of a file has its message`() {
+        assertEquals(UiMessage.SyncFileUnchanged, syncResultMessage(SyncResult.UpToDate, SourceKind.FILE))
+        assertEquals(UiMessage.SyncUpdatedFile, syncResultMessage(SyncResult.Updated, SourceKind.FILE))
+        assertEquals(UiMessage.DatabaseLoadedFile, syncResultMessage(SyncResult.CandidateReady, SourceKind.FILE))
+        assertNull(syncResultMessage(SyncResult.NewVersionRejected, SourceKind.FILE))
+        assertNull(syncResultMessage(SyncResult.NotConfigured, SourceKind.FILE))
+    }
+
+    @Test
+    fun `every sync problem of a file has its message`() {
+        assertEquals(UiMessage.SyncFileNotFound, syncResultMessage(SyncResult.Failed(SyncProblem.NOT_FOUND), SourceKind.FILE))
+        assertEquals(UiMessage.SyncFileNoAccess, syncResultMessage(SyncResult.Failed(SyncProblem.ACCESS_DENIED), SourceKind.FILE))
+        for (problem in SyncProblem.entries - setOf(SyncProblem.NOT_FOUND, SyncProblem.ACCESS_DENIED)) {
+            assertEquals(UiMessage.SyncFailed, syncResultMessage(SyncResult.Failed(problem), SourceKind.FILE), "$problem")
+        }
+    }
+
+    @Test
+    fun `the SMB messages of the problems NOT_FOUND and ACCESS_DENIED stay generic`() {
+        assertEquals(UiMessage.SyncFailed, syncResultMessage(SyncResult.Failed(SyncProblem.NOT_FOUND), SourceKind.SMB))
+        assertEquals(UiMessage.SyncFailed, syncResultMessage(SyncResult.Failed(SyncProblem.ACCESS_DENIED), SourceKind.SMB))
+    }
+
+    @Test
+    fun `database loaded and updated messages by source kind`() {
+        assertEquals(UiMessage.DatabaseLoaded, databaseLoadedMessage(SourceKind.SMB))
+        assertEquals(UiMessage.DatabaseLoadedFile, databaseLoadedMessage(SourceKind.FILE))
+        assertEquals(UiMessage.SyncUpdated, syncUpdatedMessage(SourceKind.SMB))
+        assertEquals(UiMessage.SyncUpdatedFile, syncUpdatedMessage(SourceKind.FILE))
     }
 
     @Test
     fun `every sync problem has its message`() {
-        assertEquals(UiMessage.SyncUnreachable, syncResultMessage(SyncResult.Failed(SyncProblem.UNREACHABLE)))
-        assertEquals(UiMessage.SyncOtherServer, syncResultMessage(SyncResult.Failed(SyncProblem.SERVER_CHANGED)))
+        assertEquals(UiMessage.SyncUnreachable, syncResultMessage(SyncResult.Failed(SyncProblem.UNREACHABLE), SourceKind.SMB))
+        assertEquals(UiMessage.SyncOtherServer, syncResultMessage(SyncResult.Failed(SyncProblem.SERVER_CHANGED), SourceKind.SMB))
         for (problem in SyncProblem.entries - setOf(SyncProblem.UNREACHABLE, SyncProblem.SERVER_CHANGED)) {
-            assertEquals(UiMessage.SyncFailed, syncResultMessage(SyncResult.Failed(problem)), "$problem")
+            assertEquals(UiMessage.SyncFailed, syncResultMessage(SyncResult.Failed(problem), SourceKind.SMB), "$problem")
         }
     }
 
@@ -61,11 +94,13 @@ class MessageMappingTest {
             storeFailed: Boolean = false,
         ) = UnlockOutcome.Unlocked(newVersion, candidateRejected = null, fingerprintRenewedForDays = renewedDays, fingerprintStoreFailed = storeFailed)
 
-        assertNull(unlockMessage(outcome()))
-        assertEquals(UiMessage.SyncUpdated, unlockMessage(outcome(newVersion = true)))
-        assertEquals(UiMessage.FingerprintRenewed(7), unlockMessage(outcome(renewedDays = 7)))
-        assertEquals(UiMessage.FingerprintRenewed(7), unlockMessage(outcome(newVersion = true, renewedDays = 7)))
-        assertEquals(UiMessage.FingerprintStoreFailed, unlockMessage(outcome(storeFailed = true, newVersion = true)))
+        val smb = SourceKind.SMB
+        assertNull(unlockMessage(outcome(), smb))
+        assertEquals(UiMessage.SyncUpdated, unlockMessage(outcome(newVersion = true), smb))
+        assertEquals(UiMessage.SyncUpdatedFile, unlockMessage(outcome(newVersion = true), SourceKind.FILE))
+        assertEquals(UiMessage.FingerprintRenewed(7), unlockMessage(outcome(renewedDays = 7), smb))
+        assertEquals(UiMessage.FingerprintRenewed(7), unlockMessage(outcome(newVersion = true, renewedDays = 7), smb))
+        assertEquals(UiMessage.FingerprintStoreFailed, unlockMessage(outcome(storeFailed = true, newVersion = true), smb))
     }
 
     @Test
@@ -75,7 +110,8 @@ class MessageMappingTest {
             candidateRejected = CandidateRejection.WRONG_KEY,
             fingerprintRenewedForDays = null,
         )
-        assertNull(unlockMessage(outcome))
+        assertNull(unlockMessage(outcome, SourceKind.SMB))
+        assertNull(unlockMessage(outcome, SourceKind.FILE))
     }
 
     @Test

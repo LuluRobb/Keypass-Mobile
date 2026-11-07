@@ -28,6 +28,10 @@ internal object FakeData {
     const val ROOT = "Passwörter"
     const val FILE = "Passwörter.kdbx"
     const val FILE_SIZE = 265_530L
+    const val FILE_PLACE = "Interner Speicher / Syncthing / KeePass"
+    const val SMB_PLACE = "\\\\192.168.178.10\\kpm"
+    val FILE_MODIFIED: LocalDateTime = LocalDateTime.of(2026, 10, 31, 21, 38)
+    val OLDER_MODIFIED: LocalDateTime = LocalDateTime.of(2026, 9, 12, 18, 5)
     const val HOST = "192.168.178.10"
     const val SMB_USER = "kpm-leser"
     const val SERVER = "reitano-nas"

@@ -4,6 +4,7 @@ import de.lulurobb.keypassmobile.core.NoSecrets
 import de.lulurobb.keypassmobile.model.Vault
 import java.io.File
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -11,9 +12,12 @@ import java.util.concurrent.atomic.AtomicInteger
  * Fake KDBX format: "KDBX|<key>|<label>". The file opens with the password
  * hash bytes of <key>; the vault's root group name is <label>, so tests see
  * which version was opened. Anything else starting with "KDBX|" is corrupt,
- * anything else is no KDBX at all.
+ * anything else is no KDBX at all. The optional 4th part <db> names the
+ * database: the vault's rootGroupUuid is UUID.nameUUIDFromBytes(<db>), and
+ * null without it.
  */
-fun kdbx(key: String, label: String) = "KDBX|$key|$label"
+fun kdbx(key: String, label: String, db: String? = null) =
+    if (db == null) "KDBX|$key|$label" else "KDBX|$key|$label|$db"
 
 fun key(text: String): ByteArray = text.toByteArray()
 
@@ -31,11 +35,12 @@ class FakeOpener : VaultOpener {
         beforeOpen?.invoke(file)
         opens.incrementAndGet()
         val parts = file.readText().split('|')
-        if (parts.size != 3 || parts[0] != "KDBX") throw VaultOpenException(OpenFailure.CORRUPT)
+        if (parts.size !in 3..4 || parts[0] != "KDBX") throw VaultOpenException(OpenFailure.CORRUPT)
         if (parts[1] != String(passwordHash)) throw VaultOpenException(OpenFailure.WRONG_KEY)
         val vaultSecrets = NoSecrets()
         secrets += vaultSecrets
-        return Vault(parts[2], emptyList(), emptyMap(), vaultSecrets)
+        val rootUuid = parts.getOrNull(3)?.let { UUID.nameUUIDFromBytes(it.toByteArray()) }
+        return Vault(parts[2], emptyList(), emptyMap(), vaultSecrets, rootUuid)
     }
 
     override fun looksLikeKdbx(file: File): Boolean = file.readText().startsWith("KDBX|")

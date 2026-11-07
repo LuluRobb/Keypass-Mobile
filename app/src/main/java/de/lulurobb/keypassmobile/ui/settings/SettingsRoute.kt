@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import de.lulurobb.keypassmobile.state.AppMessages
+import de.lulurobb.keypassmobile.ui.common.SourceAction
 
 /**
  * Settings screen on its [SettingsModel]. Renders nothing while there is no
@@ -18,6 +19,8 @@ fun SettingsRoute(
     onEditSource: () -> Unit,
     onOpenAutofillSettings: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
+    onSourceAction: (SourceAction) -> Unit = {},
+    onMessageAction: () -> Unit = {},
 ) {
     val state by model.state.collectAsState()
     val message by messages.message.collectAsState()
@@ -32,8 +35,10 @@ fun SettingsRoute(
             onAutoLockChange = model::onAutoLockChange,
             onOpenAutofillSettings = onOpenAutofillSettings,
             onOpenNotificationSettings = onOpenNotificationSettings,
+            onSourceAction = onSourceAction,
             message = message,
             onMessageDismissed = messages::dismiss,
+            onMessageAction = onMessageAction,
         )
     }
 }

@@ -1,5 +1,6 @@
 package de.lulurobb.keypassmobile.platform.setup
 
+import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.sync.BackgroundSyncResult
 import de.lulurobb.keypassmobile.core.sync.KeySource
 import de.lulurobb.keypassmobile.core.sync.SyncEngine
@@ -18,7 +19,7 @@ import de.lulurobb.keypassmobile.platform.session.kdbx
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
 import de.lulurobb.keypassmobile.platform.settings.MemorySettingsRepository
 import de.lulurobb.keypassmobile.platform.settings.SettingsRepository
-import de.lulurobb.keypassmobile.platform.settings.SourceConfig
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import de.lulurobb.keypassmobile.smb.FileStat
 import de.lulurobb.keypassmobile.smb.FolderListing
@@ -148,7 +149,7 @@ class SourceSetupTest {
     private val opener = FakeOpener()
     private val effects = RecordingEffects()
     private val guid = UUID.fromString("74696572-6e61-2d6f-6e61-730000000000")
-    private val oldSource = SourceConfig("nas", 445, "", "kpm", "daten", listOf("old.kdbx"))
+    private val oldSource = SmbSource("nas", 445, "", "kpm", "daten", listOf("old.kdbx"))
     private val address = ServerAddress(host = "nas", user = "kpm")
     private val connection = FakeConnection(guid, kdbx("old", "v1"), t0.minus(Duration.ofHours(1)))
     private val connector = FakeConnector(connection)
@@ -165,8 +166,8 @@ class SourceSetupTest {
     }
 
     /** The offline copy of the old file (key "old") exists, like after a normal first run. */
-    private fun seedOffline() {
-        val r = FakeRemote(kdbx("old", "v1"), t0.minus(Duration.ofHours(1)))
+    private fun seedOffline(db: String? = null) {
+        val r = FakeRemote(kdbx("old", "v1", db), t0.minus(Duration.ofHours(1)))
         assertEquals(BackgroundSyncResult.CandidateDownloaded, engine.backgroundSync(r))
         val opened = engine.unlock("old".toByteArray(), KeySource.TYPED_PASSWORD)
         assertIs<UnlockResult.Opened>(opened).vault.close()
@@ -201,6 +202,46 @@ class SourceSetupTest {
         return setup.chooseFile("daten", listOf(file))
     }
 
+    // ---- D10: started unlocked, locked before the commit ----
+
+    @Test
+    fun `D10 a lock between the tap and the commit discards the change`() = runTest {
+        seedOffline()
+        passwords.stored = "old-pw".toCharArray()
+        connection.content = kdbx("old", "older")
+        connection.modified = t0.minus(Duration.ofDays(2))
+        val s = session()
+        s.unlockWithPassword("old".toCharArray())
+        runCurrent()
+        val setup = setup(s)
+        assertIs<ConnectResult.Connected>(setup.connect(address, "smb-pw".toCharArray()))
+        // The older file would have been applied without the DS-14 dialog if the lock hit now.
+        s.lock(LockReason.Idle(IdleTimeout.SECONDS_30))
+
+        assertEquals(ChooseResult.Discarded, setup.chooseFile("daten", listOf("new.kdbx")))
+
+        assertEquals(oldSource, settings.settings.value.source)
+        assertEquals("old-pw", passwords.storedText())
+        assertEquals(kdbx("old", "v1"), offline().readText())
+        assertFalse(previous().exists())
+        assertFalse(candidate().exists())
+        setup.close()
+    }
+
+    @Test
+    fun `D10 an SMB change started locked is applied as a locked change`() = runTest {
+        seedOffline()
+        connection.content = kdbx("new", "other")
+        connection.modified = t0.minus(Duration.ofDays(2))
+        val setup = setup(session())
+
+        val saved = assertIs<ChooseResult.Saved>(choose(setup, "new.kdbx"))
+
+        assertEquals(SyncResult.CandidateReady, saved.sync)
+        assertEquals(listOf("new.kdbx"), assertIs<SmbSource>(settings.settings.value.source).filePath)
+        setup.close()
+    }
+
     @Test
     fun `choosing the same file again changes nothing`() = runTest {
         seedOffline()
@@ -224,9 +265,10 @@ class SourceSetupTest {
 
         assertTrue(saved.fileChanged)
         assertEquals(SyncResult.CandidateReady, saved.sync)
+        assertFalse(saved.lockedForNewDatabase, "locked before the change: it stays locked, nothing was locked by the switch")
         assertTrue(previous().exists())
         assertFalse(offline().exists())
-        assertEquals(listOf("new.kdbx"), settings.settings.value.source!!.filePath)
+        assertEquals(listOf("new.kdbx"), assertIs<SmbSource>(settings.settings.value.source).filePath)
         assertEquals("smb-pw", String(passwords.stored!!))
         assertTrue(s.sync.value.status.hasLocalDatabase, "the candidate")
         setup.close()
@@ -244,6 +286,7 @@ class SourceSetupTest {
         val saved = assertIs<ChooseResult.Saved>(choose(setup, "new.kdbx"))
 
         assertEquals(SyncResult.Updated, saved.sync)
+        assertFalse(saved.lockedForNewDatabase, "the key opens the new file: no lock, the UI says \"Quelle gespeichert.\"")
         assertFalse(previous().exists(), "the new file already is the offline copy")
         assertEquals(kdbx("old", "other"), offline().readText())
         assertEquals("other", assertIs<SessionState.Unlocked>(s.state.value).vault.rootGroupName)
@@ -262,9 +305,10 @@ class SourceSetupTest {
         val saved = assertIs<ChooseResult.Saved>(choose(setup, "new.kdbx"))
 
         assertEquals(SyncResult.NewVersionRejected, saved.sync)
+        assertTrue(saved.lockedForNewDatabase, "the switch itself locked: only the lock notice is shown")
         assertEquals(LockReason.SourceChanged, assertIs<SessionState.Locked>(s.state.value).reason)
         assertTrue(previous().exists())
-        assertEquals(listOf("new.kdbx"), settings.settings.value.source!!.filePath)
+        assertEquals(listOf("new.kdbx"), assertIs<SmbSource>(settings.settings.value.source).filePath)
         setup.close()
     }
 
@@ -392,10 +436,63 @@ class SourceSetupTest {
         assertTrue(caller.isCancelled)
         assertTrue(connection.closed, "closed when the change is finished")
         // The change was finished anyway: source saved, old vault locked, password and copy consistent.
-        assertEquals(listOf("new.kdbx"), settings.settings.value.source!!.filePath)
+        assertEquals(listOf("new.kdbx"), assertIs<SmbSource>(settings.settings.value.source).filePath)
         assertEquals("smb-pw", passwords.storedText())
         assertEquals(LockReason.SourceChanged, assertIs<SessionState.Locked>(s.state.value).reason)
         assertTrue(previous().exists())
+        setup.close()
+    }
+
+    // ---- DS-14: olderVersion ----
+
+    @Test
+    fun `olderVersion reports an older file of the same database and changes nothing`() = runTest {
+        seedOffline(db = "db1")
+        val s = session()
+        s.unlockWithPassword("old".toCharArray())
+        runCurrent()
+        connection.content = kdbx("old", "v0", "db1")
+        connection.modified = t0.minus(Duration.ofDays(30))
+        val setup = setup(s)
+        assertIs<ConnectResult.Connected>(setup.connect(address, "smb-pw".toCharArray()))
+
+        val older = setup.olderVersion("daten", listOf("Archiv", "old.kdbx"))
+
+        assertEquals(OlderVersion("old.kdbx", t0.minus(Duration.ofDays(30)), t0.minus(Duration.ofHours(1))), older)
+        assertEquals(oldSource, settings.settings.value.source)
+        assertIs<SessionState.Unlocked>(s.state.value)
+        assertEquals(kdbx("old", "v1", "db1"), offline().readText())
+        assertFalse(previous().exists())
+        assertFalse(candidate().exists())
+        assertNull(passwords.stored)
+        setup.close()
+    }
+
+    @Test
+    fun `olderVersion gives nothing for a newer file, another database, a locked session or a lost connection`() = runTest {
+        seedOffline(db = "db1")
+        val s = session()
+        val setup = setup(s)
+
+        // Not connected (and locked): nothing.
+        assertNull(setup.olderVersion("daten", listOf("old.kdbx")))
+        assertIs<ConnectResult.Connected>(setup.connect(address, "smb-pw".toCharArray()))
+        connection.content = kdbx("old", "v0", "db1")
+        connection.modified = t0.minus(Duration.ofDays(30))
+        assertNull(setup.olderVersion("daten", listOf("old.kdbx")), "locked: the first run and a locked change never ask")
+
+        s.unlockWithPassword("old".toCharArray())
+        runCurrent()
+        connection.modified = t0.plus(Duration.ofDays(1))
+        assertNull(setup.olderVersion("daten", listOf("old.kdbx")), "newer")
+        connection.modified = t0.minus(Duration.ofDays(30))
+        connection.content = kdbx("old", "v0", "db2")
+        assertNull(setup.olderVersion("daten", listOf("old.kdbx")), "other database")
+        connection.content = kdbx("other", "v0", "db1")
+        assertNull(setup.olderVersion("daten", listOf("old.kdbx")), "other key")
+        connection.content = kdbx("old", "v0", "db1")
+        connection.statError = SmbException(SmbException.Reason.UNREACHABLE, "down")
+        assertNull(setup.olderVersion("daten", listOf("old.kdbx")), "the switch reports errors, not this check")
         setup.close()
     }
 }

@@ -6,14 +6,18 @@ import de.lulurobb.keypassmobile.core.sync.BackgroundSyncResult
 import de.lulurobb.keypassmobile.core.sync.CandidateRejection
 import de.lulurobb.keypassmobile.core.sync.CandidateState
 import de.lulurobb.keypassmobile.core.sync.KeySource
+import de.lulurobb.keypassmobile.core.sync.ProbeResult
 import de.lulurobb.keypassmobile.core.sync.RefreshResult
 import de.lulurobb.keypassmobile.core.sync.RemoteSource
+import de.lulurobb.keypassmobile.core.sync.RemoteStat
 import de.lulurobb.keypassmobile.core.sync.SyncEngine
 import de.lulurobb.keypassmobile.core.sync.SyncProblem
+import de.lulurobb.keypassmobile.core.sync.SyncStatus
 import de.lulurobb.keypassmobile.core.sync.UnlockResult
 import de.lulurobb.keypassmobile.model.Vault
 import de.lulurobb.keypassmobile.platform.keystore.HashStore
 import de.lulurobb.keypassmobile.platform.settings.SettingsRepository
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import de.lulurobb.keypassmobile.platform.smb.ServerNames
 import kotlinx.coroutines.CoroutineDispatcher
@@ -39,6 +43,7 @@ import java.io.Closeable
 import java.io.IOException
 import java.time.Clock
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -88,6 +93,7 @@ internal class Session(
     private val preload: () -> Unit = {},
     private val journal: SwitchJournal = SwitchJournal.None,
     private val clearSmbPassword: () -> Unit = {},
+    private val sourceCleanup: SourceCleanup = SourceCleanup {},
 ) {
     private val expiry = PasswordExpiry(clock)
 
@@ -609,7 +615,17 @@ internal class Session(
             hashCopy.fill(0)
         } ?: return SyncResult.NotConfigured
         return when (result) {
-            RefreshResult.UpToDate -> SyncResult.UpToDate
+            RefreshResult.UpToDate -> {
+                // The share has the open version again: a newer file that did not open is gone (the engine
+                // dropped its candidate), so the banner of the rejected version ends.
+                synchronized(stateLock) {
+                    val current = mutableState.value
+                    if (gen == generation && current is SessionState.Unlocked && current.newVersionRejected) {
+                        mutableState.value = current.rejectionCleared()
+                    }
+                }
+                SyncResult.UpToDate
+            }
             is RefreshResult.Updated -> replaceVault(gen, result.vault, index!!)
             RefreshResult.NewVersionRejected -> {
                 synchronized(stateLock) {
@@ -671,6 +687,57 @@ internal class Session(
     }
 
     /**
+     * DS-14: is [remote] (the file picked as new source) an older version of the database
+     * that is open now? Returns the two modification times when it is: unlocked, the
+     * file is older than the version that was opened, and it opens with the key in
+     * memory as the same database (same root group UUID). Null in every other case, so
+     * the normal rules of the source change apply: no dialog when first run or locked,
+     * when the open version has no known time, when the file has no known time or is not
+     * older (no download happens then), when it is another database or does not open with
+     * the key (DS-13 lock rule), when anything fails (the switch reports the error), or when
+     * the session was locked meanwhile. Changes no state and records no problem. The copy
+     * of the hash is wiped in every case.
+     */
+    internal suspend fun olderVersionCheck(remote: RemoteSource): OlderCheck? = scope.async {
+        val snapshot = synchronized(stateLock) {
+            val current = mutableState.value as? SessionState.Unlocked
+            val copy = hash?.copyOf()
+            if (current == null || copy == null) {
+                copy?.fill(0)
+                null
+            } else {
+                OpenSnapshot(current.vault.rootGroupUuid, copy, generation)
+            }
+        } ?: return@async null
+        try {
+            val uuid = snapshot.rootGroupUuid ?: return@async null
+            val openModified = engine.status().openedModified ?: return@async null
+            val stat = try {
+                withContext(io) { remote.stat() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@async null
+            }
+            if (stat.modified == RemoteStat.UNKNOWN_MODIFIED || !stat.modified.isBefore(openModified)) return@async null
+            val probe = try {
+                withContext(io) { engine.probeOpen(remote, snapshot.hash) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return@async null
+            }
+            val sameDatabase = probe is ProbeResult.Opened && probe.rootGroupUuid == uuid
+            val stillOpen = synchronized(stateLock) { snapshot.generation == generation && mutableState.value is SessionState.Unlocked }
+            if (sameDatabase && stillOpen) OlderCheck(stat.modified, openModified) else null
+        } finally {
+            snapshot.hash.fill(0)
+        }
+    }.await()
+
+    private class OpenSnapshot(val rootGroupUuid: UUID?, val hash: ByteArray, val generation: Int)
+
+    /**
      * Setup and source change as one unit (DS-02): the test download as sync run
      * (reported as [SyncTrigger.SETUP] only when the change succeeds), setting the
      * old offline copy aside ([SyncEngine.markSourceChanged], SY-05), then
@@ -695,6 +762,22 @@ internal class Session(
      * When the old copy was set aside, an open vault (or an unlock in progress) is
      * the old file; autofill would keep serving it, so the session locks with
      * [LockReason.SourceChanged] and the next unlock opens the new file.
+     *
+     * After the commit [SourceCleanup.reconcile] runs under the same lock (DS-15: persisted
+     * file permissions, SMB password and server identity of the other source type); if it
+     * fails, the journal stays and the next start repeats it. The result tells whether the
+     * switch itself locked the session ([SourceSwitchResult.Saved.locked]). The lock rule is
+     * the same for all four paths between SMB and file: unlocked and the key opens the new
+     * file: no lock; unlocked and it does not: [LockReason.SourceChanged]; locked: stays
+     * locked and the new file waits as candidate.
+     *
+     * D10: a change with a [SourceSwitch.unlockedMark] (started while unlocked) is discarded
+     * ([SourceSwitchResult.Discarded]) when the app locked since: before anything is touched and again
+     * right before [SourceSwitch.stage], as long as the old offline copy and sync state are intact. Once the
+     * new file has replaced the old offline copy (it opened with the key in memory) there is no way back
+     * without deleting the old source's copy: a lock after that point does not discard, the change
+     * completes as a locked change. A lock after the last check (journal write, stage, commit) completes
+     * it as well. A change without a mark (started locked) is applied.
      *
      * Lock order: [syncMutex], then the engine's remote and file locks, then
      * [stateLock] (innermost, never held across a call). [lock] takes none of the
@@ -721,7 +804,13 @@ internal class Session(
         var candidateAdded = false
         var saved = false
         var keepJournal = false
+        // D10: the sync outcome of the old source before the switch, put back when the switch is discarded.
+        var syncOutcome: SyncStatus? = null
+        var discarded = false
         try {
+            // D10: started unlocked and locked since (also while this change waited for the sync lock): nothing is touched.
+            if (!stillUnlocked(change.unlockedMark)) return SourceSwitchResult.Discarded
+            syncOutcome = engine.status()
             try {
                 withContext(io) { journal.write(record) }
                 journaled = true
@@ -754,9 +843,21 @@ internal class Session(
                 record = record.copy(setAside = setAside, offlineReplaced = replaced)
                 withContext(io) { journalQuietly(record) }
             }
+            // D10 again, after the download and the engine steps, as late as possible: right before stage and commit.
+            // The point of no return is the new file replacing the old offline copy (offlineReplaced, it happened inside
+            // the download above): taking that back would delete the old source's copy and sync state although the old
+            // source stays configured. From there a lock no longer discards, the change completes as a locked change.
+            // Before it everything is still intact (the old copy may be set aside) and the finally block takes it back.
+            if (!record.offlineReplaced && !stillUnlocked(change.unlockedMark)) {
+                discarded = true
+                return SourceSwitchResult.Discarded
+            }
             try {
-                record = record.copy(passwordTouched = true)
-                withContext(io) { journal.write(record) }
+                // Only an SMB target stores a password in stage(); a file target leaves the stored one alone.
+                if (change.target is SmbSource) {
+                    record = record.copy(passwordTouched = true)
+                    withContext(io) { journal.write(record) }
+                }
                 stageCalled = true
                 withContext(io) { change.stage() }
                 withContext(io) { change.commit() }
@@ -775,13 +876,30 @@ internal class Session(
                     keepJournal = true
                 }
             }
-            if (setAside && state.value !is SessionState.Locked) lock(LockReason.SourceChanged)
+            // DS-15: permissions and secrets of the other source type. Silent; a failure keeps the journal.
+            try {
+                withContext(NonCancellable + io) { sourceCleanup.reconcile(change.target) }
+            } catch (_: Exception) {
+                keepJournal = true
+            }
+            val locksNow = setAside && state.value !is SessionState.Locked
+            if (locksNow) lock(LockReason.SourceChanged)
             emitReport(SyncTrigger.SETUP, result)
-            return SourceSwitchResult.Saved(result)
+            return SourceSwitchResult.Saved(result, locked = locksNow)
         } finally {
             withContext(NonCancellable + io) {
                 try {
                     if (!saved && journaled) rollbackSwitch(record, change, stageCalled, candidateAdded)
+                    val before = syncOutcome
+                    if (discarded && before != null && change.differs) {
+                        // The download of the foreign file recorded its result (e.g. a rejected version) as the old source's.
+                        // Not for the same file again (differs is false): its sync result is true for the old source, too.
+                        try {
+                            engine.restoreSyncOutcome(before.lastSuccessfulSync, before.lastProblem, before.lastProblemAt)
+                        } catch (_: Exception) {
+                            // Best effort.
+                        }
+                    }
                 } finally {
                     try {
                         change.finish()
@@ -793,6 +911,23 @@ internal class Session(
             }
             publishSync()
         }
+    }
+
+    /**
+     * D10: true when [mark] is null (the change was started locked) or the session is still in the
+     * unlocked state the mark was taken in. Any lock in between changes [generation].
+     */
+    private fun stillUnlocked(mark: Int?): Boolean {
+        if (mark == null) return true
+        return synchronized(stateLock) { mark == generation && mutableState.value is SessionState.Unlocked }
+    }
+
+    /**
+     * The mark for a source change that starts now: the lock generation while unlocked, else null.
+     * A [SourceSwitch] that carries it is discarded when the app locks before the commit (D10).
+     */
+    internal fun unlockedMark(): Int? = synchronized(stateLock) {
+        if (mutableState.value is SessionState.Unlocked) generation else null
     }
 
     private fun journalQuietly(record: SwitchRecord?) {
@@ -862,6 +997,7 @@ internal class Session(
                         }
                         if (record != null) {
                             val committed = record.target != null && record.target == settings.settings.value.source
+                            var cleanupFailed = false
                             if (!committed) {
                                 undoEngineSteps(record, candidateAdded = record.differs)
                                 if (record.passwordTouched) {
@@ -878,7 +1014,15 @@ internal class Session(
                                     // Best effort: a stale value only costs one rejected fingerprint attempt.
                                 }
                             }
-                            journalQuietly(null)
+                            // DS-15: whatever the outcome, the permissions and secrets must fit the source that is saved now.
+                            try {
+                                sourceCleanup.reconcile(settings.settings.value.source)
+                            } catch (_: Exception) {
+                                // A finished change keeps its journal so that the next start repeats this;
+                                // an undone one must not be replayed (its steps would hit newer files).
+                                cleanupFailed = committed
+                            }
+                            if (!cleanupFailed) journalQuietly(null)
                         }
                     }
                 }
@@ -898,7 +1042,7 @@ internal class Session(
     fun publishSync() {
         val s = settings.settings.value
         val pending = s.pendingServerGuid
-        val source = s.source
+        val source = s.source as? SmbSource
         val change = if (pending != null && source != null) {
             val remembered = s.trustedServer?.guid
             ServerChange(

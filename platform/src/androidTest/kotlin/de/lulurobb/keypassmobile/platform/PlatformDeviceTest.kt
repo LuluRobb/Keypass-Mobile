@@ -16,7 +16,7 @@ import de.lulurobb.keypassmobile.platform.session.SessionState
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
 import de.lulurobb.keypassmobile.platform.settings.PrefsSettingsRepository
-import de.lulurobb.keypassmobile.platform.settings.SourceConfig
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -135,7 +135,7 @@ class PlatformDeviceTest {
         val prefs = context.getSharedPreferences("test_settings", Context.MODE_PRIVATE)
         prefs.edit().clear().commit()
         val full = KpmSettings(
-            source = SourceConfig("192.168.178.20", 4450, "WORKGROUP", "kpm", "Daten", listOf("Ärzte", "Passwörter.kdbx")),
+            source = SmbSource("192.168.178.20", 4450, "WORKGROUP", "kpm", "Daten", listOf("Ärzte", "Passwörter.kdbx")),
             trustedServer = TrustedServer(UUID.fromString("74696572-6e61-2d6f-6e61-730000000000"), Instant.ofEpochMilli(1_761_900_000_000)),
             pendingServerGuid = UUID.fromString("9b2f6c1e-3d4a-4e5f-8a7b-0c1d2e3f4a5b"),
             fingerprintEnabled = true,

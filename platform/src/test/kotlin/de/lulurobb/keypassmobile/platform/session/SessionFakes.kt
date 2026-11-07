@@ -1,12 +1,15 @@
 package de.lulurobb.keypassmobile.platform.session
 
 import de.lulurobb.keypassmobile.core.sync.OpenFailure
+import de.lulurobb.keypassmobile.core.sync.RemoteSource
 import de.lulurobb.keypassmobile.core.sync.RemoteStat
 import de.lulurobb.keypassmobile.core.sync.VaultOpenException
 import de.lulurobb.keypassmobile.core.sync.VaultOpener
 import de.lulurobb.keypassmobile.model.Vault
 import de.lulurobb.keypassmobile.model.VaultSecrets
 import de.lulurobb.keypassmobile.platform.keystore.HashStore
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
+import de.lulurobb.keypassmobile.platform.settings.SourceConfig
 import java.io.File
 import java.time.Clock
 import java.time.Duration
@@ -18,9 +21,12 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Fake KDBX format "KDBX|<key>|<label>" as in the core tests: the file opens
- * with the hash bytes of <key>; the vault's root group name is <label>.
+ * with the hash bytes of <key>; the vault's root group name is <label>. The
+ * optional 4th part <db> names the database: the vault's rootGroupUuid is
+ * UUID.nameUUIDFromBytes(<db>), null without it.
  */
-fun kdbx(key: String, label: String) = "KDBX|$key|$label"
+fun kdbx(key: String, label: String, db: String? = null) =
+    if (db == null) "KDBX|$key|$label" else "KDBX|$key|$label|$db"
 
 class TestSecrets : VaultSecrets {
     @Volatile
@@ -47,11 +53,12 @@ class FakeOpener : VaultOpener {
         hashes += passwordHash
         beforeOpen?.invoke(file)
         val parts = file.readText().split('|')
-        if (parts.size != 3 || parts[0] != "KDBX") throw VaultOpenException(OpenFailure.CORRUPT)
+        if (parts.size !in 3..4 || parts[0] != "KDBX") throw VaultOpenException(OpenFailure.CORRUPT)
         if (parts[1] != String(passwordHash)) throw VaultOpenException(OpenFailure.WRONG_KEY)
         val s = TestSecrets()
         secrets += s
-        return Vault(parts[2], emptyList(), emptyMap(), s)
+        val rootUuid = parts.getOrNull(3)?.let { UUID.nameUUIDFromBytes(it.toByteArray()) }
+        return Vault(parts[2], emptyList(), emptyMap(), s, rootUuid)
     }
 
     override fun looksLikeKdbx(file: File): Boolean = file.readText().startsWith("KDBX|")
@@ -161,5 +168,58 @@ internal class MemoryJournal(var record: SwitchRecord? = null) : SwitchJournal {
     override fun write(record: SwitchRecord?) {
         this.record = record
         writes += record
+    }
+}
+
+/**
+ * [SourceCleanup] that records every call; the n upcoming calls of [failNext] throw
+ * after they were recorded. [events] gets "reconcile" per call, to check the order
+ * against the steps of a [StubSwitch].
+ */
+internal class RecordingCleanup(private val events: MutableList<String>? = null) : SourceCleanup {
+    val calls: MutableList<SourceConfig?> = CopyOnWriteArrayList()
+
+    @Volatile
+    var failNext = 0
+
+    override fun reconcile(source: SourceConfig?) {
+        calls += source
+        events?.add("reconcile")
+        if (failNext > 0) {
+            failNext--
+            throw IllegalStateException("cleanup")
+        }
+    }
+}
+
+/** A [SourceSwitch] that only records what the session asked for. */
+internal class StubSwitch(
+    override val remote: RemoteSource,
+    private val events: MutableList<String>,
+    override val differs: Boolean = true,
+    override val target: SourceConfig = SmbSource("nas", 445, "", "kpm", "daten", listOf("new.kdbx")),
+    override val unlockedMark: Int? = null,
+) : SourceSwitch {
+    var failCommit = false
+    var failStage = false
+    var onCommit: (() -> Unit)? = null
+
+    override fun stage() {
+        if (failStage) throw IllegalStateException("keystore")
+        events += "stage"
+    }
+
+    override fun commit() {
+        if (failCommit) throw IllegalStateException("settings")
+        onCommit?.invoke()
+        events += "commit"
+    }
+
+    override fun rollback() {
+        events += "rollback"
+    }
+
+    override fun finish() {
+        events += "finish"
     }
 }

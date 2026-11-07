@@ -11,6 +11,7 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.time.Duration
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -610,6 +611,189 @@ class SyncEngineTest {
         assertEquals(UnlockResult.NoDatabase, SyncEngine(dir, opener, clock).unlock(key("pw1"), KeySource.TYPED_PASSWORD))
     }
 
+    // ---- modification times (EN-07, DS-14) ----
+
+    @Test
+    fun localAndOpenedModifiedFollowSetupUnlockRefreshAndReset() {
+        val m1 = remote.modified
+        assertNull(engine.status().localModified)
+        assertNull(engine.status().openedModified)
+
+        engine.backgroundSync(remote)
+        assertEquals(m1, engine.status().localModified, "pending candidate")
+        assertNull(engine.status().openedModified)
+
+        opened(unlock("pw1")).vault.close()
+        assertEquals(m1, engine.status().localModified)
+        assertEquals(m1, engine.status().openedModified)
+
+        newVersion(kdbx("pw1", "v2"))
+        val m2 = remote.modified
+        assertIs<RefreshResult.Updated>(refresh("pw1"))
+        assertEquals(m2, engine.status().localModified)
+        assertEquals(m2, engine.status().openedModified)
+
+        engine.reset()
+        assertNull(engine.status().localModified)
+        assertNull(engine.status().openedModified)
+    }
+
+    @Test
+    fun localModifiedPrefersPendingCandidateThenOfflineCopyThenRejectedCandidate() {
+        establish()
+        val m1 = remote.modified
+        assertEquals(m1, engine.status().localModified)
+
+        newVersion(kdbx("pw1", "v2"))
+        val m2 = remote.modified
+        engine.backgroundSync(remote)
+        assertEquals(CandidateState.PENDING, engine.status().candidate)
+        assertEquals(m2, engine.status().localModified)
+
+        // Other key: the candidate is rejected, the offline copy is what the next unlock opens first.
+        newVersion(kdbx("pw2", "v3"))
+        engine.backgroundSync(remote)
+        opened(unlock("pw1")).vault.close()
+        assertEquals(CandidateState.REJECTED, engine.status().candidate)
+        assertEquals(m1, engine.status().localModified)
+        assertEquals(m1, engine.status().openedModified)
+    }
+
+    @Test
+    fun localModifiedFallsBackToARejectedCandidateWithoutOfflineCopy() {
+        engine.backgroundSync(remote)
+        val m1 = remote.modified
+        assertEquals(UnlockResult.WrongKey(KeySource.TYPED_PASSWORD), unlock("other"))
+        assertEquals(CandidateState.PENDING, engine.status().candidate)
+        assertEquals(m1, engine.status().localModified)
+    }
+
+    @Test
+    fun unknownModificationTimeCountsAsNull() {
+        remote.modified = RemoteStat.UNKNOWN_MODIFIED
+        engine.backgroundSync(remote)
+        assertNull(engine.status().localModified)
+        opened(unlock("pw1")).vault.close()
+        assertNull(engine.status().localModified)
+        assertNull(engine.status().openedModified)
+        assertEquals(RefreshResult.UpToDate, refresh("pw1"))
+    }
+
+    @Test
+    fun openedModifiedStaysWhenALaterRefreshOnlyFindsANewerVersionItCannotOpen() {
+        establish()
+        val m1 = remote.modified
+        newVersion(kdbx("pw2", "v2"))
+        assertEquals(RefreshResult.NewVersionRejected, refresh("pw1"))
+        assertEquals(m1, engine.status().openedModified)
+    }
+
+    // ---- probeOpen (DS-14) ----
+
+    private fun probe() = File(dir, "probe.tmp")
+
+    @Test
+    fun probeOpenReturnsStatAndRootGroupUuidAndChangesNothing() {
+        remote.publish(kdbx("pw1", "v1", db = "dbA"), remote.modified)
+        engine.backgroundSync(remote)
+        opened(unlock("pw1")).vault.close()
+        val opened = opener.secrets.size
+        val before = engine.status()
+        val offlineBefore = offline().readText()
+
+        remote.publish(kdbx("pw1", "other-label", db = "dbA"), remote.modified.minusSeconds(3600))
+        val result = assertIs<ProbeResult.Opened>(engine.probeOpen(remote, key("pw1")))
+        assertEquals(remote.modified, result.stat.modified)
+        assertEquals(UUID.nameUUIDFromBytes("dbA".toByteArray()), result.rootGroupUuid)
+
+        assertEquals(opened + 1, opener.secrets.size)
+        assertTrue(opener.secrets.last().closed, "the probe vault is closed")
+        assertFalse(probe().exists())
+        assertEquals(offlineBefore, offline().readText())
+        assertEquals(before, engine.status())
+    }
+
+    @Test
+    fun aProbeLeftByACrashIsDeletedWhenTheEngineStarts() {
+        probe().writeBytes(kdbx("pw1", "v1").toByteArray())
+        engine.backgroundSync(remote)
+
+        // A new process: a new engine on the same directory.
+        engine = SyncEngine(dir, opener, clock)
+
+        assertFalse(probe().exists(), "no leftover download of a probe")
+        assertTrue(candidate().exists(), "the real files are untouched")
+    }
+
+    @Test
+    fun resetDeletesALeftoverProbe() {
+        establish()
+        probe().writeBytes(ByteArray(10))
+
+        engine.reset()
+
+        assertFalse(probe().exists())
+        assertFalse(offline().exists())
+    }
+
+    @Test
+    fun probeOpenWithAnotherKeyIsWrongKeyAndRecordsNothing() {
+        establish()
+        newVersion(kdbx("pw2", "v2"))
+        val before = engine.status()
+        assertEquals(ProbeResult.WrongKey, engine.probeOpen(remote, key("pw1")))
+        assertFalse(probe().exists())
+        assertEquals(before, engine.status())
+        assertFalse(candidate().exists())
+    }
+
+    @Test
+    fun probeOpenOfADamagedFileFailsWithInvalidFile() {
+        establish()
+        newVersion("KDBX|broken")
+        assertEquals(ProbeResult.Failed(SyncProblem.INVALID_FILE), engine.probeOpen(remote, key("pw1")))
+        assertFalse(probe().exists())
+        assertNull(engine.status().lastProblem)
+    }
+
+    @Test
+    fun probeOpenReportsStatErrorsWithoutRecordingThem() {
+        establish()
+        remote.statError = RemoteException(RemoteError.NOT_FOUND)
+        assertEquals(ProbeResult.Failed(SyncProblem.NOT_FOUND), engine.probeOpen(remote, key("pw1")))
+        assertEquals(0, remote.downloads.get() - 1, "no download after a failed stat")
+        assertNull(engine.status().lastProblem)
+        assertFalse(probe().exists())
+    }
+
+    @Test
+    fun probeOpenRejectsASizeMismatch() {
+        establish()
+        newVersion(kdbx("pw1", "v2"))
+        remote.partialBytes = 5
+        assertEquals(ProbeResult.Failed(SyncProblem.DOWNLOAD_INCOMPLETE), engine.probeOpen(remote, key("pw1")))
+        assertFalse(probe().exists())
+        assertNull(engine.status().lastProblem)
+    }
+
+    @Test
+    fun probeOpenReportsDownloadErrorsAndRemovesALeftoverProbeFile() {
+        establish()
+        probe().writeText("leftover")
+        remote.downloadError = RemoteException(RemoteError.ACCESS_DENIED)
+        assertEquals(ProbeResult.Failed(SyncProblem.ACCESS_DENIED), engine.probeOpen(remote, key("pw1")))
+        assertFalse(probe().exists())
+    }
+
+    @Test
+    fun probeOpenWorksWithoutAnyLocalDatabase() {
+        val result = assertIs<ProbeResult.Opened>(engine.probeOpen(remote, key("pw1")))
+        assertNull(result.rootGroupUuid, "a vault without root uuid gives null")
+        assertFalse(engine.status().hasLocalDatabase)
+        assertFalse(probe().exists())
+        assertFalse(candidate().exists())
+    }
+
     // ---- source change ----
 
     private fun previous() = File(dir, "offline-previous.kdbx")
@@ -708,6 +892,38 @@ class SyncEngineTest {
         // Undo without anything set aside does nothing.
         engine.undoSourceChanged()
         assertEquals("v1", opened(unlock("pw1")).vault.rootGroupName)
+    }
+
+    @Test
+    fun undoSourceChangedBringsBackTheSyncStateOfTheOldCopy() {
+        establish()
+        val before = engine.status()
+        remote.publish(kdbx("pw2", "other"), t0.minus(Duration.ofDays(2)))
+        assertEquals(BackgroundSyncResult.CandidateDownloaded, engine.backgroundSync(remote))
+        assertTrue(engine.markSourceChanged())
+
+        engine.undoSourceChanged()
+        engine.discardCandidate()
+
+        val after = engine.status()
+        assertEquals(before.localModified, after.localModified, "the metadata of the old copy is back")
+        assertEquals(CandidateState.NONE, after.candidate)
+        assertTrue(after.hasLocalDatabase)
+        assertEquals(kdbx("pw1", "v1"), offline().readText())
+    }
+
+    @Test
+    fun aSetAsideMetadataDoesNotSurviveTheDeletionOfItsCopy() {
+        changeSource(kdbx("pw2", "other"))
+        // The new file opens: the set-aside copy is deleted. A later undo must not bring its metadata back.
+        opened(unlock("pw2")).vault.close()
+        assertFalse(previous().exists())
+        val before = engine.status().localModified
+
+        engine.undoSourceChanged()
+
+        assertEquals(before, engine.status().localModified)
+        assertEquals(kdbx("pw2", "other"), offline().readText())
     }
 
     @Test

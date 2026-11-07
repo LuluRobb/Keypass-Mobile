@@ -1,6 +1,9 @@
 package de.lulurobb.keypassmobile.ui.setup
 
 import de.lulurobb.keypassmobile.core.sync.SyncProblem
+import de.lulurobb.keypassmobile.platform.settings.FileSource
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.platform.setup.BrowseError
 import de.lulurobb.keypassmobile.platform.setup.ChooseResult
 import de.lulurobb.keypassmobile.platform.setup.ConnectError as PlatformConnectError
@@ -9,12 +12,16 @@ import de.lulurobb.keypassmobile.platform.setup.FolderResult
 import de.lulurobb.keypassmobile.platform.setup.ServerAddress
 import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.AppPlatform
+import de.lulurobb.keypassmobile.state.SessionView
 import de.lulurobb.keypassmobile.state.SourceSetupPort
 import de.lulurobb.keypassmobile.state.TimeSource
+import de.lulurobb.keypassmobile.state.toOlderVersionInfo
 import de.lulurobb.keypassmobile.state.toUi
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.components.SecretInput
 import de.lulurobb.keypassmobile.ui.components.SetupStep
+import de.lulurobb.keypassmobile.ui.dialogs.OlderVersionInfo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,26 +37,35 @@ enum class SourceFlowMode {
     /** Setup steps 1 and 2; the flow ends with [SourceFlowModel.onSaved] and H goes on to the unlock step. */
     FirstRun,
 
-    /** "Quelle ändern" from the settings while unlocked. */
+    /** "Quelle verwalten" from the settings (or a banner action) while unlocked. */
     ChangeUnlocked,
 
-    /** "Quelle ändern" while locked (unlock screen). */
+    /** "Quelle verwalten" while locked (unlock screen). */
     ChangeLocked,
 }
 
-/** Which screen of the flow is showing; null in [SourceFlowModel.screen] = the flow shows nothing. */
-enum class SourceFlowScreen { Server, Browse }
+/**
+ * Which screen of the flow is showing; null in [SourceFlowModel.screen] = the flow shows nothing.
+ * [Choose] is the choice between SMB and a file on the phone: setup step 1 in the first run,
+ * "Quelle verwalten" in the change modes.
+ */
+enum class SourceFlowScreen { Choose, Server, Browse }
 
 /**
- * State holder of the server form (setup step 1 / "Quelle ändern") and the
+ * State holder of the source choice, the server form (setup step 1 / "Quelle verwalten") and the
  * file browser (step 2), over one [SourceSetupPort] that is opened with the
  * first use. The connection (and with it a copy of the SMB password inside
  * :platform) lives until [close].
  *
+ * [start] is the first screen: [SourceFlowScreen.Choose] normally, [SourceFlowScreen.Server] for
+ * the banner action "SMB-Freigabe ändern" (back then leaves the flow instead of going to Choose).
+ * [onPickFile] opens the system file picker (FilePickController). The file path is not part of
+ * this model: the controller reports a saved first-run file with [onFileSaved].
+ *
  * [onSaved] is called with the downloaded file size after chooseFile saved the
  * source. In [SourceFlowMode.FirstRun] [screen] becomes null then and the
  * connection stays open, so H can come back with [reopen] from the unlock step;
- * the change modes post "Quelle gespeichert" and H leaves the flow.
+ * the change modes post "Quelle gespeichert" (unless the switch locked the app) and H leaves the flow.
  */
 class SourceFlowModel(
     private val platform: AppPlatform,
@@ -57,6 +73,8 @@ class SourceFlowModel(
     private val time: TimeSource,
     private val messages: AppMessages,
     private val mode: SourceFlowMode,
+    private val start: SourceFlowScreen = SourceFlowScreen.Choose,
+    private val onPickFile: () -> Unit = {},
     private val onSaved: (fileSizeBytes: Long?) -> Unit,
 ) : Closeable {
 
@@ -73,10 +91,24 @@ class SourceFlowModel(
     /** Reads the typed password (a fresh copy). Seam for tests: a SecretInput has no text without an EditText. */
     internal var readPassword: () -> CharArray = { password.toCharArray() }
 
-    private val mutableScreen = MutableStateFlow<SourceFlowScreen?>(SourceFlowScreen.Server)
+    private val mutableScreen = MutableStateFlow<SourceFlowScreen?>(start)
 
-    /** Server form or browser; null after the first-run file was saved (until [reopen]). */
+    /** Choice, server form or browser; null after the first-run file was saved (until [reopen]). */
     val screen: StateFlow<SourceFlowScreen?> = mutableScreen.asStateFlow()
+
+    /**
+     * What the choice screen shows: null in the first run (two option cards), else the kind of the
+     * current source (the two rows of "Quelle verwalten", the current source first).
+     */
+    val manageKind: SourceKind? get() = if (changing) platform.settings.value.source?.kind else null
+
+    private val mutableOlder = MutableStateFlow<OlderVersionInfo?>(null)
+
+    /** "Ältere Version" dialog of an SMB file (DS-14); null = closed. */
+    val olderDialog: StateFlow<OlderVersionInfo?> = mutableOlder.asStateFlow()
+
+    /** The file the dialog asks about. */
+    private var olderPath: List<String>? = null
 
     private val mutableForm = MutableStateFlow(initialForm())
 
@@ -96,6 +128,27 @@ class SourceFlowModel(
     /** Location and content before the running navigation, for ACCESS_DENIED. Null: nothing sensible to return to. */
     private var before: Pair<List<String>, BrowseContent>? = null
     private var choosing = false
+
+    // ---- choice ----
+
+    /** "SMB-Freigabe" / "SMB-Freigabe ändern" / "Zu SMB-Freigabe wechseln": the server form. */
+    fun onChooseSmb() {
+        if (mutableScreen.value == SourceFlowScreen.Choose) mutableScreen.value = SourceFlowScreen.Server
+    }
+
+    /** "Datei auf dem Handy" / "Andere Datei wählen" / "Zu Datei wechseln": the system file picker. */
+    fun onChooseFile() {
+        if (mutableScreen.value == SourceFlowScreen.Choose) onPickFile()
+    }
+
+    /**
+     * First run: a file was picked and saved. The flow shows nothing (the unlock step follows) and an
+     * SMB connection of an earlier attempt is closed, it is of no use any more.
+     */
+    fun onFileSaved() {
+        mutableScreen.value = null
+        disconnect()
+    }
 
     // ---- server form ----
 
@@ -186,10 +239,12 @@ class SourceFlowModel(
             ?: BrowseContent.SharesNotListed
         val server = ConnectedServer(result.server.name, result.server.dialect, result.server.encrypted)
         val step = if (changing) null else SetupStep(2)
-        val source = platform.settings.value.source
-        val start = if (changing && source != null && source.sameServerAs(address.host, address.port)) {
-            // DS-02: start at the folder of the current file, with the file picked.
-            (listOf(source.share) + source.folderPath) to (listOf(source.share) + source.filePath)
+        val source = platform.settings.value.source as? SmbSource
+        val first = if (changing && source != null && source.sameServerAs(address.host, address.port)) {
+            // DS-02: start at the folder of the current file, with the file picked. A file that is gone
+            // from the share is not preselected.
+            val gone = platform.sync.value.status.lastProblem == SyncProblem.NOT_FOUND
+            (listOf(source.share) + source.folderPath) to (if (gone) null else listOf(source.share) + source.filePath)
         } else {
             emptyList<String>() to null
         }
@@ -198,12 +253,12 @@ class SourceFlowModel(
             server = server,
             path = emptyList(),
             content = sharesView,
-            selected = start.second,
+            selected = first.second,
             step = step,
         )
         mutableForm.update { it.copy(connecting = false) }
         mutableScreen.value = SourceFlowScreen.Browse
-        openPath(start.first)
+        openPath(first.first)
     }
 
     // ---- browser ----
@@ -252,11 +307,20 @@ class SourceFlowModel(
 
     /**
      * Back inside the flow: one folder up; from the share list to the server
-     * form. False when the flow itself is to be left (back on the form): the
-     * caller handles it (first run: leave the app, change: pop).
+     * form; from the form to the choice (when the flow started there). False when the
+     * flow itself is to be left (back on the choice, or on a form the flow started with):
+     * the caller handles it (first run: leave the app, change: pop).
      */
     fun onBack(): Boolean {
-        if (mutableScreen.value != SourceFlowScreen.Browse) return false
+        when (mutableScreen.value) {
+            SourceFlowScreen.Server -> {
+                if (start != SourceFlowScreen.Choose) return false
+                mutableScreen.value = SourceFlowScreen.Choose
+                return true
+            }
+            SourceFlowScreen.Browse -> Unit
+            SourceFlowScreen.Choose, null -> return false
+        }
         val browse = mutableBrowse.value
         if (browse == null) {
             mutableScreen.value = SourceFlowScreen.Server
@@ -329,7 +393,12 @@ class SourceFlowModel(
         mutableScreen.value = SourceFlowScreen.Server
     }
 
-    /** "Diese Datei verwenden" / "Speichern": saves the picked file as the source. */
+    /**
+     * "Diese Datei verwenden" / "Speichern": saves the picked file as the source. While unlocked, a file
+     * that is older than the open version of the same database asks first (DS-14, [olderDialog]).
+     * A change that was started while unlocked is dropped silently when the app locks before it is
+     * saved (D10); the platform enforces that for the commit itself.
+     */
     fun onUseFile() {
         val selected = mutableBrowse.value?.selected ?: return
         if (selected.size < 2 || choosing) return
@@ -337,31 +406,24 @@ class SourceFlowModel(
         mutableBrowse.update { it?.copy(saving = true) }
         scope.launch {
             try {
-                when (val result = port.chooseFile(share = selected[0], filePath = selected.drop(1))) {
-                    is ChooseResult.Saved -> {
-                        if (changing) {
-                            messages.post(UiMessage.SourceSaved)
-                        } else {
-                            mutableScreen.value = null
-                        }
-                        onSaved(result.fileSizeBytes)
+                if (mode == SourceFlowMode.ChangeUnlocked) {
+                    val older = try {
+                        port.olderVersion(share = selected[0], filePath = selected.drop(1))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // No dialog; the switch itself reports a real problem.
+                        null
                     }
-                    is ChooseResult.Failed -> messages.post(
-                        when (result.problem) {
-                            SyncProblem.ACCESS_DENIED -> UiMessage.ShareDenied(selected[0], connectedUser)
-                            SyncProblem.UNREACHABLE -> UiMessage.SyncUnreachable
-                            SyncProblem.SERVER_CHANGED,
-                            SyncProblem.AUTH_FAILED,
-                            SyncProblem.NOT_FOUND,
-                            SyncProblem.REMOTE_ERROR,
-                            SyncProblem.DOWNLOAD_INCOMPLETE,
-                            SyncProblem.INVALID_FILE,
-                            SyncProblem.NEW_VERSION_REJECTED,
-                            SyncProblem.LOCAL_STORAGE,
-                            -> UiMessage.SyncFailed
-                        },
-                    )
+                    // D10: locked while the check ran (it then finds nothing, too): nothing is saved, no message.
+                    if (platform.session.value !is SessionView.Unlocked) return@launch
+                    if (older != null) {
+                        olderPath = selected
+                        mutableOlder.value = toOlderVersionInfo(older, time)
+                        return@launch
+                    }
                 }
+                save(selected)
             } finally {
                 choosing = false
                 mutableBrowse.update { it?.copy(saving = false) }
@@ -369,9 +431,71 @@ class SourceFlowModel(
         }
     }
 
-    /** First run: back from the unlock step to the browser (the connection is still open). */
+    /** "Trotzdem verwenden" in the "Ältere Version" dialog. */
+    fun onOlderUseAnyway() {
+        val selected = olderPath ?: return
+        olderPath = null
+        mutableOlder.value = null
+        if (choosing) return
+        choosing = true
+        mutableBrowse.update { it?.copy(saving = true) }
+        scope.launch {
+            try {
+                save(selected)
+            } finally {
+                choosing = false
+                mutableBrowse.update { it?.copy(saving = false) }
+            }
+        }
+    }
+
+    /** "Abbrechen" or dismissing the dialog: nothing is saved, the browser stays. */
+    fun onOlderCancel() {
+        olderPath = null
+        mutableOlder.value = null
+    }
+
+    private suspend fun save(selected: List<String>) {
+        when (val result = port.chooseFile(share = selected[0], filePath = selected.drop(1))) {
+            is ChooseResult.Saved -> {
+                if (changing) {
+                    // A switch that locked the app shows the lock notice only (DS-13).
+                    if (!result.lockedForNewDatabase) messages.post(UiMessage.SourceSaved)
+                } else {
+                    mutableScreen.value = null
+                }
+                onSaved(result.fileSizeBytes)
+            }
+            // D10: the app locked before the commit; nothing changed, nothing to say (the unlock screen follows).
+            ChooseResult.Discarded -> Unit
+            is ChooseResult.Failed -> messages.post(
+                when (result.problem) {
+                    SyncProblem.ACCESS_DENIED -> UiMessage.ShareDenied(selected[0], connectedUser)
+                    SyncProblem.UNREACHABLE -> UiMessage.SyncUnreachable
+                    SyncProblem.SERVER_CHANGED,
+                    SyncProblem.AUTH_FAILED,
+                    SyncProblem.NOT_FOUND,
+                    SyncProblem.REMOTE_ERROR,
+                    SyncProblem.DOWNLOAD_INCOMPLETE,
+                    SyncProblem.INVALID_FILE,
+                    SyncProblem.NEW_VERSION_REJECTED,
+                    SyncProblem.LOCAL_STORAGE,
+                    -> UiMessage.SyncFailed
+                },
+            )
+        }
+    }
+
+    /**
+     * First run: back from the unlock step. A file source goes back to the choice, an SMB source to the
+     * browser while the connection is still open, else to the server form.
+     */
     fun reopen() {
-        mutableScreen.value = if (mutableBrowse.value != null) SourceFlowScreen.Browse else SourceFlowScreen.Server
+        mutableScreen.value = when {
+            platform.settings.value.source is FileSource -> SourceFlowScreen.Choose
+            mutableBrowse.value != null -> SourceFlowScreen.Browse
+            else -> SourceFlowScreen.Server
+        }
     }
 
     /**
@@ -398,7 +522,7 @@ class SourceFlowModel(
 
     private fun initialForm(): ServerFormState {
         if (!changing) return ServerFormState()
-        val source = platform.settings.value.source ?: return ServerFormState(step = null)
+        val source = platform.settings.value.source as? SmbSource ?: return ServerFormState(step = null)
         return ServerFormState(
             host = source.host,
             user = source.user,
