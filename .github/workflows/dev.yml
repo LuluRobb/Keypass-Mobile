@@ -3,8 +3,10 @@
 # both succeeded.
 #
 # One rolling pre-release with the fixed tag "dev" holds the newest dev build. Its APK
-# always has the same name, so one stable link serves the newest build:
-# https://github.com/LuluRobb/Keypass-Mobile/releases/download/dev/Keypass-Mobile-dev.apk
+# carries the version in the file name, like the normal releases (versionName 0.3.0-dev.6
+# -> Keypass-Mobile-0-3-0-dev-6.apk), and it is the only APK asset of the release. The
+# stable link is the release page:
+# https://github.com/LuluRobb/Keypass-Mobile/releases/tag/dev
 # The release is a pre-release and never "Latest", so it does not disturb the release
 # channel of main (see release.yml).
 #
@@ -80,6 +82,7 @@ jobs:
       cancel-in-progress: true
     outputs:
       version: ${{ steps.apk.outputs.version }}
+      apk_name: ${{ steps.apk.outputs.name }}
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -173,7 +176,10 @@ jobs:
             exit 1
           fi
           mkdir -p dist
-          cp "$apk" dist/Keypass-Mobile-dev.apk
+          # Same naming as release.yml: dots become dashes.
+          name="Keypass-Mobile-${version//./-}.apk"
+          cp "$apk" "dist/$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Store APK for the release
@@ -184,10 +190,11 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Updates the rolling release "dev" in place, so the stable download link never points
-  # to nothing: the new APK replaces the old asset, title and notes follow, and the tag
-  # "dev" moves last. When the job fails in the middle, the release keeps working and a
-  # re-run of the job completes it. Only when no release exists, it is created.
+  # Updates the rolling release "dev" in place, so the release page never points to
+  # nothing: the new APK is uploaded first, then all other assets (older dev APKs) are
+  # deleted, title and notes follow, and the tag "dev" moves last. When the job fails in
+  # the middle, the release keeps working (at worst with two APKs) and a re-run of the job
+  # completes it. Only when no release exists, it is created.
   # Concurrent publishes would race on the tag, so this job is never cancelled
   # (cancel-in-progress: false); further runs wait their turn and GitHub keeps only the
   # newest waiting one.
@@ -213,6 +220,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.build.outputs.version }}
+          APK_NAME: ${{ needs.build.outputs.apk_name }}
           # Commit messages are user-controlled: only ever used as data, never in the script text.
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
@@ -253,7 +261,13 @@ jobs:
           done
 
           if exists "repos/$GH_REPO/releases/tags/dev"; then
-            gh release upload dev dist/Keypass-Mobile-dev.apk --clobber
+            gh release upload dev "dist/$APK_NAME" --clobber
+            # Keep exactly one APK: delete every asset except the new one.
+            for asset in $(gh release view dev --json assets --jq '.assets[].name'); do
+              if [ "$asset" != "$APK_NAME" ]; then
+                gh release delete-asset dev "$asset" --yes
+              fi
+            done
             gh release edit dev --title "$title" --notes-file notes.md --prerelease --latest=false
             gh api --method PATCH "repos/$GH_REPO/git/refs/tags/dev" -f sha="$GITHUB_SHA" -F force=true
           else
@@ -262,7 +276,7 @@ jobs:
             if exists "repos/$GH_REPO/git/ref/tags/dev"; then
               gh api --method DELETE "repos/$GH_REPO/git/refs/tags/dev"
             fi
-            gh release create dev dist/Keypass-Mobile-dev.apk \
+            gh release create dev "dist/$APK_NAME" \
               --target "$GITHUB_SHA" \
               --title "$title" \
               --notes-file notes.md \
