@@ -1,0 +1,18 @@
+{
+  "uniqueId": "org.redundent:kotlin-xml-builder",
+  "artifactVersion": "1.9.3",
+  "name": "Kotlin XML Builder",
+  "description": "Quelltext in kotpass enthalten (geändert und gekürzt), kein eigener Download. Die Version steht in der Liste der Fremdbibliotheken von kotpass 0.13.0.",
+  "website": "https://github.com/redundent/kotlin-xml-builder",
+  "developers": [
+    {
+      "name": "Jason Blackwell"
+    }
+  ],
+  "scm": {
+    "url": "https://github.com/redundent/kotlin-xml-builder"
+  },
+  "licenses": [
+    "Apache-2.0"
+  ]
+}

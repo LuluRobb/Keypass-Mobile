@@ -7,6 +7,7 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.aboutlibraries.android)
 }
 
 // Release signing. Each value comes from a KPM_* environment variable (GitHub Actions)
@@ -52,15 +53,19 @@ if (!hasDevSigning && (requireDevSigning || devSigning.values.any { it != null }
     throw GradleException("Dev signing is incomplete or required, missing: ${missing.joinToString()}")
 }
 
-// Versioning. The base version is maintained by hand. GitHub Actions passes the workflow
-// run number as KPM_BUILD_NUMBER: versionCode = N, versionName = <base>.N (e.g. 0.1.0.3),
-// like the BUILD part of Chromium versions. The number keeps rising across base versions.
+// Versioning. The base version (x.y.z) is maintained by hand and is the only thing a release
+// shows: versionName = <base> (e.g. 0.3.1), also the tag v<base> of the GitHub release.
+// release.yml refuses to release a base version that is already released or not newer than
+// the last release, and it reads the line below, so keep it exactly as `val baseVersion = "x.y.z"`.
+// GitHub Actions passes the workflow run number as KPM_BUILD_NUMBER: versionCode = N. Android
+// needs a rising versionCode, the number keeps rising across base versions. It does not
+// appear in the release versionName, but the About screen shows it as "Build-Nummer".
 // Local builds have no build number: versionCode 1, versionName <base>-dev.
 // The "dev" build type keeps the same versionCode but names its version <base>-dev.N
-// (e.g. 0.1.0-dev.7), or <base>-dev without a build number (see androidComponents below).
+// (e.g. 0.3.0-dev.7), or <base>-dev without a build number (see androidComponents below).
 // Bump rule: major (x.0.0) only with the owner's approval, minor (0.x.0) per new feature,
 // patch (0.0.x) per bug fix or small change; once per release cycle, bumped on development.
-val baseVersion = "0.3.0"
+val baseVersion = "0.4.0"
 val buildNumber: Int? = providers.environmentVariable("KPM_BUILD_NUMBER").orNull
     ?.takeIf { it.isNotBlank() }
     ?.let { raw ->
@@ -102,7 +107,8 @@ android {
         targetSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = buildNumber ?: 1
-        versionName = if (buildNumber != null) "$baseVersion.$buildNumber" else "$baseVersion-dev"
+        // The release name is the plain base version, the build number only lives in versionCode.
+        versionName = if (buildNumber != null) baseVersion else "$baseVersion-dev"
         // Empty for local builds (see buildCommit above).
         buildConfigField("String", "COMMIT", "\"$buildCommit\"")
         buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
@@ -187,6 +193,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.aboutlibraries.core)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     // Instrumented Compose tests (app/src/androidTest). The manifest artifact only registers
@@ -201,10 +208,35 @@ dependencies {
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.org.json)
     testImplementation(libs.kotlinx.coroutines.test)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+}
+
+// Open-source licenses page. The Android plugin generates res/raw/aboutlibraries.json for every
+// variant from that variant's own runtime classpath (so the release and dev APKs list what they
+// bundle, the debug APK additionally its tooling). Everything stays local: offlineMode blocks any
+// network access of the plugin, license texts come from its bundled SPDX data and from
+// licenses-config (own texts with copyright lines, manual entries for material that is not a Maven
+// dependency). No GitHub API is used, so there is no token and no rate limit.
+aboutLibraries {
+    offlineMode = true
+    collect {
+        configPath = file("licenses-config")
+        fetchRemoteLicense = false
+        fetchRemoteFunding = false
+        // Drops the BOMs (compose-bom and friends): they ship no code.
+        includePlatform = false
+    }
+    license {
+        // Texts the manual entries need, even if no Maven dependency used them.
+        additionalLicenses.addAll("Apache-2.0", "MPL-2.0")
+    }
+    export {
+        excludeFields.addAll("funding")
+    }
 }

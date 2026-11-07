@@ -1,0 +1,18 @@
+{
+  "uniqueId": "publicsuffix.org:public-suffix-list",
+  "artifactVersion": "2026-10-31",
+  "name": "Public Suffix List",
+  "description": "Liste der Domain-Endungen, mit der die App Webadressen für das Ausfüllen vergleicht. Die Datei public_suffix_list.dat liegt unverändert in der App. Den Quelltext dieser Daten gibt es unter https://publicsuffix.org/list/public_suffix_list.dat.",
+  "website": "https://publicsuffix.org/",
+  "developers": [
+    {
+      "name": "Public Suffix List Contributors"
+    }
+  ],
+  "scm": {
+    "url": "https://github.com/publicsuffix/list"
+  },
+  "licenses": [
+    "MPL-2.0"
+  ]
+}

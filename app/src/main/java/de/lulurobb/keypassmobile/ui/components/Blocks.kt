@@ -220,13 +220,13 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, topPadding: Dp = 2
 }
 
 /**
- * Settings row: icon, title, sublines, optional trailing content. Clickable
+ * Settings row: icon (none in long lists such as the licenses), title, sublines, optional trailing content. Clickable
  * when [onClick] is set; a switch row passes [checked] and [onCheckedChange]
  * so the whole row toggles.
  */
 @Composable
 fun SettingsRow(
-    @DrawableRes icon: Int,
+    @DrawableRes icon: Int?,
     title: String,
     modifier: Modifier = Modifier,
     sublines: List<SettingsSubline> = emptyList(),
@@ -257,12 +257,14 @@ fun SettingsRow(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        KpmIcon(
-            icon,
-            contentDescription = null,
-            modifier = Modifier.align(Alignment.Top).padding(top = 2.dp).size(24.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (icon != null) {
+            KpmIcon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.align(Alignment.Top).padding(top = 2.dp).size(24.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
             sublines.forEach { line ->

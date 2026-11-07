@@ -36,14 +36,15 @@ import de.lulurobb.keypassmobile.ui.icons.KpmIcons
 /**
  * "Über KeyPass Mobile" (settings, row at the bottom): app facts, project links and the device,
  * grouped like the settings. Read-only rows are announced as one block of label and value; link
- * rows open [onOpenLink] (the browser). "Infos kopieren" hands the plain text summary to
- * [onCopyInfo]; it holds nothing secret.
+ * rows open [onOpenLink] (the browser). "Rechtliches" at the end leads to the open-source licenses
+ * ([onOpenLicenses]). "Infos kopieren" hands the plain text summary to [onCopyInfo]; it holds nothing secret.
  */
 @Composable
 fun AboutScreen(
     info: AboutInfo,
     onBack: () -> Unit,
     onOpenLink: (String) -> Unit,
+    onOpenLicenses: () -> Unit,
     onCopyInfo: (String) -> Unit,
     modifier: Modifier = Modifier,
     message: UiMessage? = null,
@@ -133,6 +134,15 @@ fun AboutScreen(
             InfoRow(KpmIcons.Android, labelAndroid, android)
             InfoRow(KpmIcons.Smartphone, labelDevice, device)
 
+            SectionLabel(stringResource(R.string.about_group_legal))
+            SettingsRow(
+                icon = KpmIcons.Licenses,
+                title = stringResource(R.string.about_licenses),
+                sublines = listOf(SettingsSubline(stringResource(R.string.about_licenses_text))),
+                onClick = onOpenLicenses,
+                trailing = { KpmIcon(KpmIcons.ChevronRight, null, tint = scheme.onSurfaceVariant) },
+            )
+
             val summary = aboutSummary(
                 appName,
                 listOf(
@@ -159,7 +169,7 @@ fun AboutScreen(
 
 /** Read-only row; TalkBack reads label and value as one. */
 @Composable
-private fun InfoRow(@DrawableRes icon: Int, label: String, value: String, monospace: Boolean = false) {
+internal fun InfoRow(@DrawableRes icon: Int, label: String, value: String, monospace: Boolean = false) {
     SettingsRow(
         icon = icon,
         title = label,
@@ -170,7 +180,7 @@ private fun InfoRow(@DrawableRes icon: Int, label: String, value: String, monosp
 
 /** Row that opens [url] in the browser; the tap is announced as [openLabel]. */
 @Composable
-private fun LinkRow(
+internal fun LinkRow(
     @DrawableRes icon: Int,
     label: String,
     value: String,

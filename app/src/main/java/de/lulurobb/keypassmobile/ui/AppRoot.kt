@@ -7,7 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import de.lulurobb.keypassmobile.R
 import de.lulurobb.keypassmobile.state.AppController
@@ -17,6 +19,10 @@ import de.lulurobb.keypassmobile.ui.about.AboutRoute
 import de.lulurobb.keypassmobile.ui.components.BusyOverlay
 import de.lulurobb.keypassmobile.ui.detail.DetailRoute
 import de.lulurobb.keypassmobile.ui.dialogs.OlderVersionDialog
+import de.lulurobb.keypassmobile.ui.licenses.LicenseCatalog
+import de.lulurobb.keypassmobile.ui.licenses.LicenseDetailRoute
+import de.lulurobb.keypassmobile.ui.licenses.LicensesRoute
+import de.lulurobb.keypassmobile.ui.licenses.loadLicenseEntries
 import de.lulurobb.keypassmobile.ui.list.ListRoute
 import de.lulurobb.keypassmobile.ui.settings.SettingsRoute
 import de.lulurobb.keypassmobile.ui.setup.BrowseRoute
@@ -30,7 +36,7 @@ import de.lulurobb.keypassmobile.ui.unlock.UnlockRoute
 /**
  * The screen of [AppController.screen] with its route composable. Every screen shares the
  * messages of the controller. [resumed] is true while the activity is in the foreground.
- * The system pages and the links of the About screen are activity-only, so the activity passes them in.
+ * The system pages and the links of the About screen and the license pages are activity-only, so the activity passes them in.
  * [onExit] is system back at a root screen (the activity moves the task to the back).
  *
  * On top of every screen: "Lese Datei ..." while a picked file is checked and saved (back does nothing)
@@ -55,8 +61,11 @@ fun AppRoot(
     val messages = controller.messages
     val back: () -> Unit = { if (!controller.onBack()) onExit() }
     val repick: () -> Unit = controller.filePick::repickAfterError
-    // The settings keep their scroll position while "Über KeyPass Mobile" or "Quelle verwalten" is on top.
-    val settingsState = rememberSettingsStateHolder(screen.route)
+    // The settings, the About screen and the licenses list keep their scroll position while a screen opened from them is on top.
+    val screenState = rememberScreenStateHolder(screen.route)
+    // The licenses are read once and shared by the list and the detail pages.
+    val appContext = LocalContext.current.applicationContext
+    val licenses = remember(appContext) { LicenseCatalog { loadLicenseEntries(appContext) } }
     // Registered first, so the BackHandlers of the source flow routes (enabled) take precedence.
     BackHandler(onBack = back)
     Box(Modifier.fillMaxSize()) {
@@ -106,7 +115,7 @@ fun AppRoot(
                 DetailRoute(current.model, messages, onBack = back)
             }
             is AppScreen.Settings -> key(current.model) {
-                settingsState.SaveableStateProvider(SettingsStateKey) {
+                screenState.SaveableStateProvider(SettingsStateKey) {
                     SettingsRoute(
                         model = current.model,
                         messages = messages,
@@ -121,7 +130,23 @@ fun AppRoot(
                 }
             }
             is AppScreen.About -> key(current.model) {
-                AboutRoute(current.model, messages, onBack = back, onOpenLink = onOpenLink)
+                screenState.SaveableStateProvider(AboutStateKey) {
+                    AboutRoute(
+                        current.model,
+                        messages,
+                        onBack = back,
+                        onOpenLink = onOpenLink,
+                        onOpenLicenses = controller::openLicenses,
+                    )
+                }
+            }
+            is AppScreen.Licenses -> key(current.model) {
+                screenState.SaveableStateProvider(LicensesStateKey) {
+                    LicensesRoute(licenses, onBack = back, onOpen = { controller.openLicense(it.id) })
+                }
+            }
+            is AppScreen.LicenseDetail -> key(current.model) {
+                LicenseDetailRoute(licenses, current.route.id, messages, onBack = back, onOpenLink = onOpenLink)
             }
         }
         if (busy) BusyOverlay(stringResource(R.string.pick_reading))

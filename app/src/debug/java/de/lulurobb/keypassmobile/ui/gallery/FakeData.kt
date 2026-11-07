@@ -30,7 +30,7 @@ internal object FakeData {
 
     /** About screen of a CI release build on a phone. */
     val about = AboutInfo(
-        versionName = "0.3.0.7",
+        versionName = "0.3.0",
         versionCode = 7,
         variant = BuildVariant.Release,
         packageName = "de.lulurobb.keypassmobile",

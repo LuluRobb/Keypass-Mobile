@@ -28,7 +28,7 @@ import org.junit.runner.RunWith
 /**
  * The settings come back at their scroll position after the screen opened from them (About, source
  * change) and start at the top again after any other route. Same wiring as [AppRoot]: the settings run
- * inside the holder of [rememberSettingsStateHolder].
+ * inside the holder of [rememberScreenStateHolder].
  */
 @RunWith(AndroidJUnit4::class)
 class SettingsScrollKeeperTest {
@@ -41,7 +41,7 @@ class SettingsScrollKeeperTest {
     private fun show() {
         rule.setContent {
             KeyPassTheme {
-                val holder = rememberSettingsStateHolder(route)
+                val holder = rememberScreenStateHolder(route)
                 if (route == AppRoute.Settings) {
                     holder.SaveableStateProvider(SettingsStateKey) {
                         SettingsScreen(
@@ -54,7 +54,7 @@ class SettingsScrollKeeperTest {
                                 autoLockSeconds = 120,
                                 autofillSelected = true,
                                 notificationsAllowed = true,
-                                versionName = "0.3.0.7",
+                                versionName = "0.3.0",
                             ),
                             onBack = {},
                             onEditSource = {},

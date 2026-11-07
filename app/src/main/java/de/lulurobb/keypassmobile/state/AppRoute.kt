@@ -23,6 +23,12 @@ sealed interface AppRoute {
 
     /** "Über KeyPass Mobile", opened from the settings. */
     data object About : AppRoute
+
+    /** "Open-Source-Lizenzen", opened from the About screen. */
+    data object Licenses : AppRoute
+
+    /** The license page of one library ([id] is its unique id), opened from the licenses list. */
+    data class LicenseDetail(val id: String) : AppRoute
 }
 
 /** What the user opened on top of the entry list while unlocked; the only navigation state kept by hand. */
@@ -33,6 +39,12 @@ sealed interface InAppScreen {
 
     /** "Über KeyPass Mobile" on top of the settings. */
     data object About : InAppScreen
+
+    /** "Open-Source-Lizenzen" on top of the About screen. */
+    data object Licenses : InAppScreen
+
+    /** The license page of the library [id] on top of the licenses list. */
+    data class LicenseDetail(val id: String) : InAppScreen
 
     /**
      * "Quelle verwalten" from the settings or the SMB banner action (a [SourceFlowMode.ChangeUnlocked]
@@ -73,6 +85,8 @@ fun computeRoute(
         is InAppScreen.Detail -> AppRoute.EntryDetail(top.id)
         InAppScreen.Settings -> AppRoute.Settings
         InAppScreen.About -> AppRoute.About
+        InAppScreen.Licenses -> AppRoute.Licenses
+        is InAppScreen.LicenseDetail -> AppRoute.LicenseDetail(top.id)
         is InAppScreen.ChangeSource ->
             AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, changeScreen ?: top.start)
     }

@@ -65,6 +65,11 @@ object KpmIcons {
     @DrawableRes val ReportProblem = R.drawable.ic_flag
     @DrawableRes val Android = R.drawable.ic_memory
     @DrawableRes val Smartphone = R.drawable.ic_smartphone
+
+    /* Icons of the licenses pages ("Rechtliches" row of the About screen and the detail page). */
+    @DrawableRes val Licenses = R.drawable.ic_description
+    @DrawableRes val Website = R.drawable.ic_public
+    @DrawableRes val Organization = R.drawable.ic_badge
 }
 
 /** An icon from res/drawable, tinted with the current content color. */

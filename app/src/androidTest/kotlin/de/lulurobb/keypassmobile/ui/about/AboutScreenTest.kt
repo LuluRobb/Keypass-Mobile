@@ -39,7 +39,7 @@ class AboutScreenTest {
     private val built = Instant.parse("2026-11-07T12:30:00Z")
 
     private val release = AboutInfo(
-        versionName = "0.3.0.7",
+        versionName = "0.3.0",
         versionCode = 7,
         variant = BuildVariant.Release,
         packageName = "de.lulurobb.keypassmobile",
@@ -61,6 +61,7 @@ class AboutScreenTest {
 
     private val links = mutableListOf<String>()
     private val copies = mutableListOf<String>()
+    private var licensesOpened = 0
 
     private fun about(info: AboutInfo, message: UiMessage? = null) {
         rule.setContent {
@@ -69,6 +70,7 @@ class AboutScreenTest {
                     info = info,
                     onBack = {},
                     onOpenLink = { links += it },
+                    onOpenLicenses = { licensesOpened++ },
                     onCopyInfo = { copies += it },
                     message = message,
                 )
@@ -82,10 +84,10 @@ class AboutScreenTest {
     fun releaseBuildShowsGroupsAndFacts() {
         about(release)
         rule.onNodeWithText("Über KeyPass Mobile").assertIsDisplayed()
-        for (heading in listOf("App", "Projekt", "Gerät")) show(heading)
+        for (heading in listOf("App", "Projekt", "Gerät", "Rechtliches")) show(heading)
         // Label and value sit in one node: TalkBack reads them together.
         for ((label, value) in listOf(
-            "Version" to "0.3.0.7",
+            "Version" to "0.3.0",
             "Build-Nummer" to "7",
             "Variante" to "Release",
             "Paketname" to "de.lulurobb.keypassmobile",
@@ -102,7 +104,7 @@ class AboutScreenTest {
     @Test
     fun readOnlyRowsCannotBeClicked() {
         about(release)
-        rule.onNode(hasText("Version") and hasText("0.3.0.7")).assertHasNoClickAction()
+        rule.onNode(hasText("Version") and hasText("0.3.0")).assertHasNoClickAction()
         rule.onNode(hasText("Ersteller")).performScrollTo().assertHasNoClickAction()
         rule.onNode(hasText("Modell")).performScrollTo().assertHasNoClickAction()
     }
@@ -128,6 +130,18 @@ class AboutScreenTest {
             ),
             links,
         )
+    }
+
+    @Test
+    fun licensesRowAtTheEndOpensTheLicensesList() {
+        about(release)
+        // Group "Rechtliches" sits after the device facts and before the copy button.
+        show("Rechtliches")
+        rule.onNode(hasText("Open-Source-Lizenzen") and hasText("Bibliotheken und Daten, die in der App stecken"))
+            .performScrollTo().assertHasClickAction().performClick()
+        assertEquals(1, licensesOpened)
+        assertEquals(emptyList<String>(), links)
+        rule.onNodeWithText("Infos kopieren").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -158,7 +172,7 @@ class AboutScreenTest {
             listOf(
                 listOf(
                     "KeyPass Mobile",
-                    "Version: 0.3.0.7",
+                    "Version: 0.3.0",
                     "Build-Nummer: 7",
                     "Variante: Release",
                     "Paketname: de.lulurobb.keypassmobile",
@@ -201,7 +215,13 @@ class AboutScreenTest {
         var back = 0
         rule.setContent {
             KeyPassTheme {
-                AboutRoute(info = release, messages = messages, onBack = { back++ }, onOpenLink = { links += it })
+                AboutRoute(
+                    info = release,
+                    messages = messages,
+                    onBack = { back++ },
+                    onOpenLink = { links += it },
+                    onOpenLicenses = { licensesOpened++ },
+                )
             }
         }
         rule.onNodeWithText("Infos kopieren").performScrollTo().performClick()
@@ -210,7 +230,7 @@ class AboutScreenTest {
         val clip = context.getSystemService(ClipboardManager::class.java).primaryClip
         assertNotNull(clip)
         val text = clip!!.getItemAt(0).text.toString()
-        assertTrue(text, text.startsWith("KeyPass Mobile\nVersion: 0.3.0.7\n"))
+        assertTrue(text, text.startsWith("KeyPass Mobile\nVersion: 0.3.0\n"))
         assertTrue(text, text.contains("Commit: 9f3c2a1\n"))
         // Nothing secret in it: no sensitive flag, unlike a copied password.
         val extras = clip.description.extras

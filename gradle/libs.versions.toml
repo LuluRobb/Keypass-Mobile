@@ -21,6 +21,11 @@ slf4j = "2.0.18"
 androidxTestRunner = "1.7.0"
 androidxTestExtJunit = "1.3.0"
 junit4 = "4.13.2"
+# Unit tests of :app only: the real org.json, because the Android stub of the JSON parser does not run on the JVM.
+orgJson = "20250517"
+# :app, open-source licenses page (plugin collects the release/dev runtime classpath, core parses the JSON).
+# 14.2.1 is the newest release that compiles against compileSdk 36; 15.0.0 and later need compileSdk 37.
+aboutLibraries = "14.2.1"
 
 [libraries]
 # Android app
@@ -59,9 +64,13 @@ slf4j-nop = { group = "org.slf4j", name = "slf4j-nop", version.ref = "slf4j" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
 junit4 = { group = "junit", name = "junit", version.ref = "junit4" }
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
+# Open-source licenses page of :app. The plugin generates the data, only the core module is used at runtime (no stock UI).
+aboutlibraries-core = { group = "com.mikepenz", name = "aboutlibraries-core", version.ref = "aboutLibraries" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+aboutlibraries-android = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutLibraries" }

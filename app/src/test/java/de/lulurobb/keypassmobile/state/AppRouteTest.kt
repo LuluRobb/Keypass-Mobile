@@ -109,6 +109,22 @@ class AppRouteTest {
         assertEquals(AppRoute.Settings, route(unlocked = true, stack = listOf(InAppScreen.Settings)))
         assertEquals(AppRoute.About, route(unlocked = true, stack = listOf(InAppScreen.Settings, InAppScreen.About)))
         assertEquals(
+            AppRoute.Licenses,
+            route(unlocked = true, stack = listOf(InAppScreen.Settings, InAppScreen.About, InAppScreen.Licenses)),
+        )
+        assertEquals(
+            AppRoute.LicenseDetail("com.hierynomus:smbj"),
+            route(
+                unlocked = true,
+                stack = listOf(
+                    InAppScreen.Settings,
+                    InAppScreen.About,
+                    InAppScreen.Licenses,
+                    InAppScreen.LicenseDetail("com.hierynomus:smbj"),
+                ),
+            ),
+        )
+        assertEquals(
             AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Browse),
             route(
                 unlocked = true,

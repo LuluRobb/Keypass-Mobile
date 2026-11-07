@@ -1,12 +1,16 @@
 # Every push to main publishes a new GitHub release, marked as latest.
-# The jobs "Test" and "Build APK" run in parallel; "Publish release" only runs when
-# both succeeded. "Submit dependencies" runs alongside and never blocks the release.
+# "Check version" runs first and stops the release before any real work when the base
+# version is not new. Then "Test" and "Build APK" run in parallel; "Publish release" only
+# runs when both succeeded. "Submit dependencies" runs alongside and never blocks the release.
 #
-# Versioning: the workflow run number N is passed to Gradle as KPM_BUILD_NUMBER, which
-# makes versionCode = N and versionName = <base version>.N (see app/build.gradle.kts).
-# For base version 0.1.0 and run 3: tag v0.1.0.3, title "Keypass Mobile 0.1.0.3",
-# file Keypass-Mobile-0-1-0-3.apk. Tag and versionName match, so updaters such as
-# Obtainium can compare the release with the installed app.
+# Versioning: a release carries only the base version x.y.z from app/build.gradle.kts as
+# versionName. The workflow run number N is passed to Gradle as KPM_BUILD_NUMBER and only
+# becomes versionCode (it must keep rising, Android needs it).
+# For base version 0.3.1: tag v0.3.1, title "Keypass Mobile 0.3.1", file
+# Keypass-Mobile-0-3-1.apk. Tag and versionName match, so updaters such as Obtainium can
+# compare the release with the installed app. Older releases (v0.1.0.5, v0.2.0.6, v0.3.0.7)
+# keep their 4-part tags; they count as released for their x.y.z.
+# The base version must be bumped before every release (see check-release-version.sh).
 #
 # Secrets: KPM_KEYSTORE_BASE64 (release.jks as base64), KPM_KEYSTORE_PASSWORD
 # (store and key password, PKCS12 uses one password for both). Only "Build APK" gets them.
@@ -25,8 +29,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Fails fast when the base version is already released or lower than the last release.
+  # Re-running the release of the same commit is allowed. Needs the tag list of the repo
+  # (git ls-remote), which works with the default read access of the checkout.
+  version:
+    name: Check version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check that the base version is new
+        id: check
+        run: git ls-remote --tags origin | bash .github/scripts/check-release-version.sh app/build.gradle.kts
+
   test:
     name: Test
+    needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -58,6 +80,7 @@ jobs:
 
   build:
     name: Build APK
+    needs: version
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: release
@@ -116,6 +139,7 @@ jobs:
         id: apk
         env:
           BUILD_NUMBER: ${{ github.run_number }}
+          BASE_VERSION: ${{ needs.version.outputs.version }}
         run: |
           apk=app/build/outputs/apk/release/app-release.apk
           build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
@@ -123,8 +147,8 @@ jobs:
           version=$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionName='\([^']*\)'.*/\1/p")
           code=$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionCode='\([^']*\)'.*/\1/p")
           echo "versionName=$version versionCode=$code"
-          if [ "$code" != "$BUILD_NUMBER" ] || [[ "$version" != *".$BUILD_NUMBER" ]]; then
-            echo "::error::APK has versionName '$version' and versionCode '$code', expected <base>.$BUILD_NUMBER and $BUILD_NUMBER"
+          if [ -z "$BASE_VERSION" ] || [ "$version" != "$BASE_VERSION" ] || [ "$code" != "$BUILD_NUMBER" ]; then
+            echo "::error::APK has versionName '$version' and versionCode '$code', expected '$BASE_VERSION' and $BUILD_NUMBER"
             exit 1
           fi
           name="Keypass-Mobile-${version//./-}.apk"
@@ -164,8 +188,9 @@ jobs:
           APK: dist/${{ needs.build.outputs.apk-name }}
         run: |
           tag="v$VERSION"
-          # A re-run of the same workflow run keeps its run number and thus its tag,
-          # so replace that release.
+          # The tag is v<base version>. "Check version" only lets a version through that has
+          # no release yet or whose tag already points to this commit (re-run), so deleting
+          # an existing release here only ever replaces the release of this very commit.
           gh release delete "$tag" --cleanup-tag --yes 2>/dev/null || true
           gh release create "$tag" "$APK" \
             --target "$GITHUB_SHA" \

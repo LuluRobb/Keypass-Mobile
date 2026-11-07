@@ -15,7 +15,7 @@ import de.lulurobb.keypassmobile.ui.common.UiMessage
 /**
  * About screen on the shared messages. "Infos kopieren" puts the summary on the clipboard as a plain
  * clip, not marked sensitive (it holds nothing secret, unlike the copied passwords). The links are
- * activity-only, so the caller passes [onOpenLink] in.
+ * activity-only, so the caller passes [onOpenLink] in. [onOpenLicenses] opens the licenses list.
  */
 @Composable
 fun AboutRoute(
@@ -23,6 +23,7 @@ fun AboutRoute(
     messages: AppMessages,
     onBack: () -> Unit,
     onOpenLink: (String) -> Unit,
+    onOpenLicenses: () -> Unit,
 ) {
     val context = LocalContext.current
     val clipboard = remember(context) { context.getSystemService(ClipboardManager::class.java) }
@@ -32,6 +33,7 @@ fun AboutRoute(
         info = info,
         onBack = onBack,
         onOpenLink = onOpenLink,
+        onOpenLicenses = onOpenLicenses,
         onCopyInfo = { text ->
             val copied = try {
                 clipboard?.setPrimaryClip(ClipData.newPlainText(label, text))

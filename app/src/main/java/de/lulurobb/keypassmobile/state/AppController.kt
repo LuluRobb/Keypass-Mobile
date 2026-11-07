@@ -55,6 +55,17 @@ sealed interface AppScreen {
     class About(override val model: AboutInfo) : AppScreen {
         override val route: AppRoute = AppRoute.About
     }
+
+    /** The licenses list has no state holder of its own: the route is its model (the data lives in the UI's catalog). */
+    class Licenses : AppScreen {
+        override val route: AppRoute = AppRoute.Licenses
+        override val model: Any = AppRoute.Licenses
+    }
+
+    /** The model is the id string (the same instance while the route stays), so the screen does not change on every update. */
+    class LicenseDetail(override val route: AppRoute.LicenseDetail) : AppScreen {
+        override val model: Any = route.id
+    }
 }
 
 /**
@@ -164,6 +175,16 @@ class AppController(
     /** "Über KeyPass Mobile" row of the settings. */
     fun openAbout() = act {
         if (route == AppRoute.Settings) stack += InAppScreen.About
+    }
+
+    /** "Open-Source-Lizenzen" row of the About screen. */
+    fun openLicenses() = act {
+        if (route == AppRoute.About) stack += InAppScreen.Licenses
+    }
+
+    /** A library of the licenses list; [id] is its unique id. */
+    fun openLicense(id: String) = act {
+        if (route == AppRoute.Licenses) stack += InAppScreen.LicenseDetail(id)
     }
 
     /** "Quelle verwalten" in the settings: the source choice. */
@@ -280,6 +301,8 @@ class AppController(
         is AppRoute.EntryDetail,
         AppRoute.Settings,
         AppRoute.About,
+        AppRoute.Licenses,
+        is AppRoute.LicenseDetail,
         -> {
             stack.removeLastOrNull()
             true
@@ -463,6 +486,8 @@ class AppController(
             route is AppRoute.EntryDetail ||
             route is AppRoute.Settings ||
             route is AppRoute.About ||
+            route is AppRoute.Licenses ||
+            route is AppRoute.LicenseDetail ||
             (route is AppRoute.SourceFlow && route.mode == SourceFlowMode.ChangeUnlocked)
         if (!inApp) {
             discardInApp()
@@ -502,6 +527,8 @@ class AppController(
         is AppRoute.EntryDetail -> AppScreen.EntryDetail(route, checkNotNull(detailModels[route.id]).model)
         AppRoute.Settings -> AppScreen.Settings(checkNotNull(settingsModel).model)
         AppRoute.About -> AppScreen.About(platform.aboutInfo)
+        AppRoute.Licenses -> AppScreen.Licenses()
+        is AppRoute.LicenseDetail -> AppScreen.LicenseDetail(route)
     }
 
     /** The unlock model; built again when the mode changed (setup completed). It stays until a lock finds it stale. */
