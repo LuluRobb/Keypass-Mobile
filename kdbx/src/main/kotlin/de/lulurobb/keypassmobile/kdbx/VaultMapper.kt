@@ -12,6 +12,7 @@ internal class VaultContent(
     val entries: List<VaultEntry>,
     val customIcons: Map<UUID, ByteArray>,
     val passwords: Map<UUID, ProtectedPassword>,
+    val rootGroupUuid: UUID,
 )
 
 /**
@@ -53,6 +54,7 @@ internal object VaultMapper {
             entries = collector.entries,
             customIcons = icons,
             passwords = collector.passwords,
+            rootGroupUuid = root.uuid,
         )
     }
 

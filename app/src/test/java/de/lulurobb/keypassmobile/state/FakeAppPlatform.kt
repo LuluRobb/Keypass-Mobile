@@ -87,6 +87,10 @@ class FakeAppPlatform(
     val setups = mutableListOf<FakeSourceSetup>()
     var nextSetup: () -> FakeSourceSetup = { FakeSourceSetup() }
 
+    /** File setup objects handed out by startFileSetup(); the last one is the current one. */
+    val fileSetups = mutableListOf<FakeFileSetup>()
+    var nextFileSetup: () -> FakeFileSetup = { FakeFileSetup() }
+
     // ---- records ----
 
     /** Names of the calls with their arguments, e.g. "lock", "copyPassword:<id>", "setIdleTimeout:MINUTES_1". */
@@ -204,5 +208,10 @@ class FakeAppPlatform(
     override fun startSourceSetup(): SourceSetupPort {
         calls += "startSourceSetup"
         return nextSetup().also { setups += it }
+    }
+
+    override fun startFileSetup(): FakeFileSetup {
+        calls += "startFileSetup"
+        return nextFileSetup().also { fileSetups += it }
     }
 }

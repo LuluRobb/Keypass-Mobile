@@ -6,6 +6,7 @@ import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.AppPlatform
 import de.lulurobb.keypassmobile.state.SessionView
 import de.lulurobb.keypassmobile.state.TimeSource
+import de.lulurobb.keypassmobile.state.sourceKindOf
 import de.lulurobb.keypassmobile.state.syncResultMessage
 import de.lulurobb.keypassmobile.state.toListBanner
 import de.lulurobb.keypassmobile.state.toOtherServerInfo
@@ -69,18 +70,19 @@ class EntryListModel(
 
     /** The list screen, null while the session is not unlocked. */
     val view: StateFlow<EntryListView?> =
-        combine(computed, mutableQuery, bannerDismissed, platform.sync) { c, query, dismissed, info ->
+        combine(computed, mutableQuery, bannerDismissed, platform.sync, platform.settings) { c, query, dismissed, info, settings ->
             c?.let {
+                val source = settings.source
                 EntryListView(
                     it.unlocked.vault,
                     EntryListState(
                         query = query,
                         topGroups = it.topGroups,
                         groupFilter = it.filter,
-                        sync = toSyncState(info, it.unlocked, time),
+                        sync = toSyncState(info, it.unlocked, time, sourceKindOf(settings)),
                         content = it.content,
                         rootGroupName = it.unlocked.vault.rootGroupName,
-                        banner = toListBanner(info, it.unlocked, dismissed, time),
+                        banner = toListBanner(info, it.unlocked, dismissed, time, source),
                     ),
                 )
             }
@@ -120,7 +122,10 @@ class EntryListModel(
     /** Sync chip. A run already in progress is not started twice. */
     fun onSyncNow() {
         if (platform.sync.value.syncing) return
-        scope.launch { syncResultMessage(platform.syncNow())?.let(messages::post) }
+        scope.launch {
+            val kind = sourceKindOf(platform.settings.value)
+            syncResultMessage(platform.syncNow(), kind)?.let(messages::post)
+        }
     }
 
     fun onBannerDetails() {
@@ -139,7 +144,7 @@ class EntryListModel(
             val result = platform.trustNewServer()
             val message = when (result) {
                 SyncResult.UpToDate, SyncResult.Updated -> UiMessage.ServerAccepted
-                else -> syncResultMessage(result)
+                else -> syncResultMessage(result, sourceKindOf(platform.settings.value))
             }
             message?.let(messages::post)
         }

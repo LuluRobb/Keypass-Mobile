@@ -59,6 +59,17 @@ class SyncEngine(
     @Volatile
     private var openedIsOffline = true
 
+    /** Remote metadata of the file the last unlock or refresh opened; null when unknown (DS-14). */
+    @Volatile
+    private var openedMeta: FileMeta? = null
+
+    /**
+     * Remote metadata of the offline copy that [markSourceChanged] set aside, in memory only, so that
+     * [undoSourceChanged] can bring back the sync state with the file. Null after a restart: the next
+     * refresh then downloads once more (the recovery of an interrupted change).
+     */
+    private var setAsideMeta: FileMeta? = null
+
     /**
      * Opens the local database without contacting the share (SY-03).
      *
@@ -75,7 +86,9 @@ class SyncEngine(
         if (store.candidate.isFile) {
             when (val attempt = tryOpen(store.candidate, passwordHash)) {
                 is Attempt.Opened -> {
+                    val candidateMeta = store.validMeta(store.candidate, state.candidate)
                     openedIsOffline = promoteCandidate()
+                    openedMeta = candidateMeta
                     openedVersion = OpenedVersion.OFFLINE_COPY
                     return UnlockResult.Opened(attempt.vault, newVersionOpened = true, candidateRejected = null)
                 }
@@ -105,6 +118,7 @@ class SyncEngine(
                     commit(state.copy(candidateRejected = true).withProblem(SyncProblem.NEW_VERSION_REJECTED, now()))
                 }
                 openedIsOffline = true
+                openedMeta = store.validMeta(store.offline, state.offline)
                 openedVersion = OpenedVersion.OFFLINE_COPY
                 val rejection = when (candidateFailure) {
                     null -> null
@@ -186,6 +200,7 @@ class SyncEngine(
                         store.moveAtomically(store.download, store.offline)
                         // The new file is in place: the offline copy of a previous source is obsolete.
                         store.deleteQuietly(store.previousOffline)
+                        setAsideMeta = null
                         commit(state.copy(offline = FileMeta.of(stat, now())).withoutCandidate().withSuccess(now()))
                         true
                     } catch (e: IOException) {
@@ -199,6 +214,7 @@ class SyncEngine(
                     return RefreshResult.Failed(recordProblem(SyncProblem.LOCAL_STORAGE))
                 }
                 openedIsOffline = true
+                openedMeta = FileMeta.of(stat, now())
                 openedVersion = OpenedVersion.SHARE
                 return RefreshResult.Updated(attempt.vault)
             }
@@ -291,6 +307,10 @@ class SyncEngine(
     fun status(): SyncStatus {
         val current = state
         val hasCandidate = store.candidate.isFile
+        val candidateMeta = if (hasCandidate) current.candidate else null
+        val offlineMeta = if (store.offline.isFile) current.offline else null
+        val pendingMeta = candidateMeta?.takeIf { !current.candidateRejected }
+        val localMeta = pendingMeta ?: offlineMeta ?: candidateMeta
         return SyncStatus(
             hasLocalDatabase = store.offline.isFile || hasCandidate,
             openedVersion = openedVersion,
@@ -302,7 +322,45 @@ class SyncEngine(
                 current.candidateRejected -> CandidateState.REJECTED
                 else -> CandidateState.PENDING
             },
+            localModified = localMeta?.remoteModified?.takeIf { it != RemoteStat.UNKNOWN_MODIFIED },
+            openedModified = openedMeta?.remoteModified?.takeIf { it != RemoteStat.UNKNOWN_MODIFIED },
         )
+    }
+
+    /**
+     * Checks whether [remote] opens with [passwordHash] without touching any
+     * state: stat, download into a probe file, size check, open, read the root
+     * group UUID, close the vault and delete the file. No problem is recorded,
+     * the offline copy, candidate and sync state stay as they are. Used to
+     * compare a picked file with the open database (DS-14). Waits for a running
+     * sync and costs a full download and key derivation.
+     */
+    fun probeOpen(remote: RemoteSource, passwordHash: ByteArray): ProbeResult = synchronized(remoteLock) {
+        store.deleteQuietly(store.probe)
+        try {
+            val stat = try {
+                remote.stat()
+            } catch (e: Exception) {
+                return ProbeResult.Failed(problemOf(e))
+            }
+            downloadToTemp(remote, stat, store.probe)?.let { return ProbeResult.Failed(it) }
+            when (val attempt = tryOpen(store.probe, passwordHash)) {
+                is Attempt.Opened -> {
+                    val uuid = try {
+                        attempt.vault.rootGroupUuid
+                    } finally {
+                        attempt.vault.close()
+                    }
+                    return ProbeResult.Opened(stat, uuid)
+                }
+                is Attempt.Failed -> return when (attempt.failure) {
+                    OpenFailure.WRONG_KEY -> ProbeResult.WrongKey
+                    OpenFailure.CORRUPT -> ProbeResult.Failed(SyncProblem.INVALID_FILE)
+                }
+            }
+        } finally {
+            store.deleteQuietly(store.probe)
+        }
     }
 
     /**
@@ -326,6 +384,7 @@ class SyncEngine(
             synchronized(fileLock) {
                 if (!store.offline.isFile || !store.candidate.isFile) return false
                 store.moveAtomically(store.offline, store.previousOffline)
+                setAsideMeta = state.offline
                 commit(state.copy(offline = null))
                 return true
             }
@@ -334,14 +393,30 @@ class SyncEngine(
 
     /**
      * Takes back [markSourceChanged] when the source change failed afterwards:
-     * the set-aside copy becomes the offline copy again (its metadata is gone, so
-     * the next refresh downloads once more).
+     * the set-aside copy becomes the offline copy again, with its remote metadata when
+     * this process set it aside (after a restart the metadata is gone, so the next
+     * refresh downloads once more).
      */
     fun undoSourceChanged() {
         synchronized(remoteLock) {
             synchronized(fileLock) {
                 if (!store.previousOffline.isFile || store.offline.isFile) return
                 store.moveAtomically(store.previousOffline, store.offline)
+                val meta = setAsideMeta
+                setAsideMeta = null
+                if (meta != null && state.offline == null) commit(state.copy(offline = meta))
+            }
+        }
+    }
+
+    /**
+     * Puts back the outcome of the last sync (time of the last success, last problem and its time) that
+     * a discarded source change overwrote with the result of the foreign file. Nothing else changes.
+     */
+    fun restoreSyncOutcome(lastSuccessfulSync: Instant?, lastProblem: SyncProblem?, lastProblemAt: Instant?) {
+        synchronized(remoteLock) {
+            synchronized(fileLock) {
+                commit(state.copy(lastSuccessfulSync = lastSuccessfulSync, lastProblem = lastProblem, lastProblemAt = lastProblemAt))
             }
         }
     }
@@ -364,12 +439,15 @@ class SyncEngine(
     fun reset() = synchronized(remoteLock) {
         synchronized(fileLock) {
             store.delete(store.download)
+            store.delete(store.probe)
             store.delete(store.candidate)
             store.delete(store.offline)
             store.delete(store.previousOffline)
+            setAsideMeta = null
             commit(SyncState())
             openedVersion = null
             openedIsOffline = true
+            openedMeta = null
         }
     }
 
@@ -401,6 +479,7 @@ class SyncEngine(
         // Without metadata the next refresh downloads once more to learn the remote stat.
         // The new file is in place: the offline copy of a previous source is obsolete.
         store.deleteQuietly(store.previousOffline)
+        setAsideMeta = null
         commit(state.copy(offline = meta).withoutCandidate())
         return true
     }
@@ -427,22 +506,22 @@ class SyncEngine(
     }
 
     /** Downloads into the temporary file; returns the problem or null on success. Caller holds [remoteLock]. */
-    private fun downloadToTemp(remote: RemoteSource, stat: RemoteStat): SyncProblem? {
+    private fun downloadToTemp(remote: RemoteSource, stat: RemoteStat, target: File = store.download): SyncProblem? {
         try {
-            remote.download(store.download)
+            remote.download(target)
         } catch (e: Exception) {
-            store.deleteQuietly(store.download)
+            store.deleteQuietly(target)
             return problemOf(e)
         }
         // Catches downloads that ended early without an error, and files changed while downloading.
-        if (!store.download.isFile || store.download.length() != stat.size) {
-            store.deleteQuietly(store.download)
+        if (!target.isFile || target.length() != stat.size) {
+            store.deleteQuietly(target)
             return SyncProblem.DOWNLOAD_INCOMPLETE
         }
         try {
-            store.syncFile(store.download)
+            store.syncFile(target)
         } catch (e: IOException) {
-            store.deleteQuietly(store.download)
+            store.deleteQuietly(target)
             return SyncProblem.LOCAL_STORAGE
         }
         return null

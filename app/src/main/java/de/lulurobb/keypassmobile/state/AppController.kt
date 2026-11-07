@@ -4,12 +4,15 @@ import de.lulurobb.keypassmobile.core.sync.SyncProblem
 import de.lulurobb.keypassmobile.platform.session.SyncReport
 import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.session.SyncTrigger
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
+import de.lulurobb.keypassmobile.ui.common.SourceAction
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.detail.EntryDetailModel
 import de.lulurobb.keypassmobile.ui.list.EntryListModel
 import de.lulurobb.keypassmobile.ui.settings.SettingsModel
 import de.lulurobb.keypassmobile.ui.setup.SourceFlowMode
 import de.lulurobb.keypassmobile.ui.setup.SourceFlowModel
+import de.lulurobb.keypassmobile.ui.setup.SourceFlowScreen
 import de.lulurobb.keypassmobile.ui.setup.SystemSetupModel
 import de.lulurobb.keypassmobile.ui.unlock.UnlockModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -61,7 +64,11 @@ sealed interface AppScreen {
  *
  * Messages: one [AppMessages] for all screens and the sync reports that are not answered by a call
  * (see [onReport]). The lock message of every real Unlocked -> Locked transition is not a snackbar: it
- * goes to the unlock model, which shows it as a notice until the next successful unlock.
+ * goes to the unlock model, which shows it as a notice until the next successful unlock. A rejected
+ * file ([UiMessage.PickFailed]) is removed when the route changes.
+ *
+ * The file picker: [filePick] runs everything from the picker request to the saved source; the
+ * activity launches the system picker for its [FilePickController.request].
  */
 class AppController(
     val platform: AppPlatform,
@@ -70,6 +77,9 @@ class AppController(
     private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     val messages = AppMessages()
+
+    /** Picking a file on the phone as the source (first run, "Quelle verwalten", banner actions). */
+    val filePick = FilePickController(platform, scope, time, messages) { mode, _ -> onFileSaved(mode) }
 
     private class Owned<out T>(val model: T, private val scope: CoroutineScope) {
         fun cancel() = scope.cancel()
@@ -145,14 +155,14 @@ class AppController(
         if (route == AppRoute.EntryList) stack += InAppScreen.Settings
     }
 
-    /** "Quelle ändern" in the settings. */
+    /** "Quelle verwalten" in the settings: the source choice. */
     fun editSource() = act {
-        if (route == AppRoute.Settings) stack += InAppScreen.ChangeSource
+        if (route == AppRoute.Settings) stack += InAppScreen.ChangeSource(SourceFlowScreen.Choose)
     }
 
     /**
-     * "Quelle wählen" of the unlock notice (offline copy damaged): locked source change. In the
-     * first run the source flow of the setup itself is reopened.
+     * "Andere Datenbank wählen" and "Quelle neu wählen" of the unlock screen: locked source change,
+     * starting at the source choice. In the first run the source flow of the setup itself is reopened.
      */
     fun chooseSource() = act {
         val current = route
@@ -165,10 +175,33 @@ class AppController(
     }
 
     /**
+     * The button of a list banner or of the sync status in the settings (UI-09). [SourceAction.RepickFile]
+     * opens the file picker, in the folder of the current file. [SourceAction.EditSmb] opens the SMB server
+     * form with an empty password (DS-03); back returns to the screen it came from.
+     */
+    fun onSourceAction(action: SourceAction) {
+        when (action) {
+            SourceAction.RepickFile -> filePick.pick(changing = true)
+            SourceAction.EditSmb -> act {
+                val current = route
+                if (current == AppRoute.EntryList || current == AppRoute.Settings) {
+                    stack += InAppScreen.ChangeSource(SourceFlowScreen.Server)
+                }
+            }
+        }
+    }
+
+    /**
      * System back. True when the app handled it (screen popped, flow went back); false at the
      * roots (entry list, unlock screen, setup step 1 and 4), where the activity moves the task to the back.
      */
     fun onBack(): Boolean {
+        // Reading the file: back does nothing. The "Ältere Version" dialog: back cancels it.
+        if (filePick.busy.value) return true
+        if (filePick.olderDialog.value != null) {
+            filePick.onOlderCancel()
+            return true
+        }
         var handled = false
         act { handled = back() }
         return handled
@@ -195,6 +228,7 @@ class AppController(
     /** Discards all models and closes the open source connections. Call when the activity is gone for good. */
     fun close() {
         closed = true
+        filePick.close()
         discardInApp()
         unlockedChangeFlow?.dispose()
         unlockedChangeFlow = null
@@ -259,6 +293,8 @@ class AppController(
         val locked = lockTracker.onSession(session) ?: return
         // A message of the open session (e.g. "Passwort kopiert") has no place on the unlock screen.
         messages.dismiss()
+        // An open "Ältere Version" dialog counts as cancel.
+        filePick.onLocked()
         collapse(lockMessage(locked.reason))
     }
 
@@ -290,15 +326,15 @@ class AppController(
         when (report.trigger) {
             SyncTrigger.AFTER_UNLOCK,
             SyncTrigger.SCHEDULED,
-            -> reportMessage(report.result)?.let(messages::post)
+            -> reportMessage(report.result, sourceKindOf(platform.settings.value))?.let(messages::post)
             SyncTrigger.REQUESTED,
             SyncTrigger.SETUP,
             -> Unit
         }
     }
 
-    private fun reportMessage(result: SyncResult): UiMessage? = when (result) {
-        SyncResult.Updated -> UiMessage.SyncUpdated
+    private fun reportMessage(result: SyncResult, kind: SourceKind): UiMessage? = when (result) {
+        SyncResult.Updated -> syncUpdatedMessage(kind)
         is SyncResult.Failed -> if (result.problem == SyncProblem.SERVER_CHANGED) UiMessage.SyncOtherServer else null
         SyncResult.UpToDate,
         SyncResult.CandidateReady,
@@ -307,14 +343,26 @@ class AppController(
         -> null
     }
 
-    private fun onSourceSaved(mode: SourceFlowMode, fileSizeBytes: Long?) = act {
+    private fun onSourceSaved(mode: SourceFlowMode) = act { applySaved(mode) }
+
+    /**
+     * A file picked with the system picker was saved. In the first run the flow shows nothing from now on
+     * (the SMB connection of an earlier attempt is closed) and setup step 3 follows; after a change the
+     * source flow, if there is one, is left: unlocked back to the screen below (the settings after
+     * "Quelle verwalten", the list or settings after a banner action).
+     */
+    private fun onFileSaved(mode: SourceFlowMode) = act {
+        if (mode == SourceFlowMode.FirstRun) firstRunFlow?.model?.onFileSaved()
+        applySaved(mode)
+    }
+
+    private fun applySaved(mode: SourceFlowMode) {
         when (mode) {
             SourceFlowMode.FirstRun -> {
                 val existing = unlockModel != null
                 val unlock = ensureUnlock(firstRun = true).model
                 // Back and forth to another file: no stale notice from the old one.
                 if (existing) unlock.reset()
-                unlock.setFirstRunFileSize(fileSizeBytes)
             }
             SourceFlowMode.ChangeLocked -> {
                 lockedChangeFlow?.dispose()
@@ -322,7 +370,7 @@ class AppController(
                 unlockModel?.model?.reset()
             }
             // The flow is closed by the next resolve, it is no longer on the stack.
-            SourceFlowMode.ChangeUnlocked -> stack.remove(InAppScreen.ChangeSource)
+            SourceFlowMode.ChangeUnlocked -> stack.removeAll { it is InAppScreen.ChangeSource }
         }
     }
 
@@ -352,7 +400,11 @@ class AppController(
         if (!started) return
         val next = resolve()
         val current = mutableScreen.value
-        if (next.route != current.route || next.model !== current.model) mutableScreen.value = next
+        if (next.route != current.route || next.model !== current.model) {
+            // A rejected file belongs to the screen the picker was opened from.
+            if (next.route != current.route && messages.message.value is UiMessage.PickFailed) messages.dismiss()
+            mutableScreen.value = next
+        }
     }
 
     /** Computes the route from the platform state and brings the models in line with it. */
@@ -374,11 +426,12 @@ class AppController(
         if (!hasSource && firstRunFlow == null && lockedChangeFlow == null) {
             firstRunFlow = startFlow(SourceFlowMode.FirstRun)
         }
-        if (InAppScreen.ChangeSource !in stack) {
+        val change = stack.filterIsInstance<InAppScreen.ChangeSource>().lastOrNull()
+        if (change == null) {
             unlockedChangeFlow?.dispose()
             unlockedChangeFlow = null
         } else if (unlocked && unlockedChangeFlow == null) {
-            unlockedChangeFlow = startFlow(SourceFlowMode.ChangeUnlocked)
+            unlockedChangeFlow = startFlow(SourceFlowMode.ChangeUnlocked, change.start)
         }
         val active = (lockedChangeFlow ?: firstRunFlow)?.let { ActiveFlow(it.mode, it.model.screen.value) }
         val route = computeRoute(
@@ -454,10 +507,13 @@ class AppController(
         }
     }
 
-    private fun startFlow(mode: SourceFlowMode): FlowHandle {
+    private fun startFlow(mode: SourceFlowMode, start: SourceFlowScreen = SourceFlowScreen.Choose): FlowHandle {
         val own = childScope()
-        val model = SourceFlowModel(platform, own, time, messages, mode) { size -> onSourceSaved(mode, size) }
-        // Server <-> browser and the first-run "shows nothing" change the route.
+        val model = SourceFlowModel(
+            platform, own, time, messages, mode, start,
+            onPickFile = { filePick.pick(changing = mode != SourceFlowMode.FirstRun) },
+        ) { _ -> onSourceSaved(mode) }
+        // Choice <-> server <-> browser and the first-run "shows nothing" change the route.
         own.launch { model.screen.collect { act { } } }
         return FlowHandle(mode, model, own)
     }

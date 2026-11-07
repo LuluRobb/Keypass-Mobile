@@ -12,6 +12,7 @@ import de.lulurobb.keypassmobile.platform.session.SourceSwitchResult
 import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
 import de.lulurobb.keypassmobile.platform.settings.SettingsRepository
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.settings.SourceConfig
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import de.lulurobb.keypassmobile.platform.smb.ServerNames
@@ -60,6 +61,9 @@ class SourceSetup internal constructor(
 ) : Closeable {
 
     private val mutex = Mutex()
+
+    /** D10: [Session.unlockedMark] at the start of this change; null when it started locked or in the first run. */
+    private val startedUnlocked: Int? = session.unlockedMark()
     private var server: SmbServer? = null
     private var password: CharArray? = null
     private var guid: UUID? = null
@@ -169,6 +173,9 @@ class SourceSetup internal constructor(
      * source never shows the new file; the next sync downloads the old file again.
      * A process death in the middle is undone at the next start (see
      * Session.recoverInterruptedSwitch).
+     *
+     * D10: a setup created while the app was unlocked yields [ChooseResult.Discarded], and changes
+     * nothing, when the app has locked before the commit.
      */
     suspend fun chooseFile(share: String, filePath: List<String>): ChooseResult = mutex.withLock {
         require(filePath.isNotEmpty()) { "filePath must name a file" }
@@ -177,26 +184,9 @@ class SourceSetup internal constructor(
         val guid = this.guid
         if (server == null || password == null || guid == null) return@withLock ChooseResult.Failed(SyncProblem.UNREACHABLE)
         val smbFile = smbPath(filePath)
-        val connection = try {
-            // A connection that went stale while browsing is replaced once (withConnection) instead of failing the choice.
-            withContext(io) {
-                withConnection { c ->
-                    try {
-                        c.stat(share, smbFile)
-                    } catch (e: SmbException) {
-                        // Anything but a dead connection is reported by the download itself.
-                        if (e.reason == SmbException.Reason.UNREACHABLE || e.reason == SmbException.Reason.OTHER) throw e
-                    }
-                    c
-                }
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            return@withLock ChooseResult.Failed(SyncProblem.UNREACHABLE)
-        }
+        val connection = liveConnection(share, smbFile) ?: return@withLock ChooseResult.Failed(SyncProblem.UNREACHABLE)
         val connectionRemote = ConnectionRemote(connection, share, smbFile)
-        val source = SourceConfig(server.host, server.port, server.domain, server.username, share, filePath)
+        val source = SmbSource(server.host, server.port, server.domain, server.username, share, filePath)
         val fileChanged = !source.sameFileAs(settings.settings.value.source)
         // Own copies: the switch may outlive this call (cancelled caller) and close() wipes ours.
         val newPassword = password.copyOf()
@@ -206,6 +196,7 @@ class SourceSetup internal constructor(
             override val remote: RemoteSource = connectionRemote
             override val target: SourceConfig = source
             override val differs: Boolean = fileChanged
+            override val unlockedMark: Int? = startedUnlocked
 
             override fun stage() {
                 previousPassword = smbPasswords.load()
@@ -242,8 +233,48 @@ class SourceSetup internal constructor(
         switchJob = job
         when (val switched = job.await()) {
             is SourceSwitchResult.Failed -> ChooseResult.Failed(switched.problem)
-            is SourceSwitchResult.Saved -> ChooseResult.Saved(connectionRemote.size ?: 0L, fileChanged, switched.sync)
+            SourceSwitchResult.Discarded -> ChooseResult.Discarded
+            is SourceSwitchResult.Saved ->
+                ChooseResult.Saved(connectionRemote.size ?: 0L, fileChanged, switched.sync, lockedForNewDatabase = switched.locked)
         }
+    }
+
+    /**
+     * The connection of [connect], checked with a stat of [smbFile]; a connection that went stale
+     * while browsing is replaced once (withConnection) instead of failing. Null when it cannot be
+     * had. Caller holds [mutex].
+     */
+    private suspend fun liveConnection(share: String, smbFile: String): SetupConnection? = try {
+        withContext(io) {
+            withConnection { c ->
+                try {
+                    c.stat(share, smbFile)
+                } catch (e: SmbException) {
+                    // Anything but a dead connection is reported by the download itself.
+                    if (e.reason == SmbException.Reason.UNREACHABLE || e.reason == SmbException.Reason.OTHER) throw e
+                }
+                c
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * DS-14: the file at [share] and [filePath] is older than the version that is open
+     * now and is the same database (see [Session.olderVersionCheck]). Null when no dialog is
+     * due, also when the connection is gone or anything fails: the change itself reports
+     * errors. Needs the connection of [connect]; changes no state. Downloads the file
+     * only when it is older by its modification time.
+     */
+    suspend fun olderVersion(share: String, filePath: List<String>): OlderVersion? = mutex.withLock {
+        if (filePath.isEmpty() || server == null || password == null || guid == null) return@withLock null
+        val smbFile = smbPath(filePath)
+        val connection = liveConnection(share, smbFile) ?: return@withLock null
+        val check = session.olderVersionCheck(ConnectionRemote(connection, share, smbFile)) ?: return@withLock null
+        OlderVersion(filePath.last(), check.fileModified, check.openModified)
     }
 
     /**
@@ -365,7 +396,7 @@ class SourceSetup internal constructor(
 
         /** The remembered GUID applies only to the host and port of the current source. */
         fun rememberedGuidFor(current: KpmSettings, server: SmbServer): UUID? {
-            val source = current.source ?: return null
+            val source = current.source as? SmbSource ?: return null
             if (!source.sameServerAs(server.host, server.port)) return null
             return current.trustedServer?.guid
         }

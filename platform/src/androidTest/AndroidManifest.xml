@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+
+        <!-- Documents provider of the tests (SafDocumentsDeviceTest). Same shape as a real one:
+             exported, guarded by MANAGE_DOCUMENTS, announced with the DOCUMENTS_PROVIDER action. -->
+        <provider
+            android:name="de.lulurobb.keypassmobile.platform.TestDocumentsProvider"
+            android:authorities="de.lulurobb.keypassmobile.platform.test.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+    </application>
+
+</manifest>

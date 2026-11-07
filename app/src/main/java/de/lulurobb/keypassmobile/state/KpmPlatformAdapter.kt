@@ -18,7 +18,9 @@ import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
 import de.lulurobb.keypassmobile.platform.setup.ChooseResult
 import de.lulurobb.keypassmobile.platform.setup.ConnectResult
+import de.lulurobb.keypassmobile.platform.setup.FileSourceSetup
 import de.lulurobb.keypassmobile.platform.setup.FolderResult
+import de.lulurobb.keypassmobile.platform.setup.OlderVersion
 import de.lulurobb.keypassmobile.platform.setup.ServerAddress
 import de.lulurobb.keypassmobile.platform.setup.SourceSetup
 import kotlinx.coroutines.CoroutineScope
@@ -108,6 +110,8 @@ class KpmPlatformAdapter(
 
     override fun startSourceSetup(): SourceSetupPort = SourceSetupAdapter(platform.startSourceSetup())
 
+    override fun startFileSetup(): FileSourceSetup = platform.startFileSetup()
+
     /**
      * Fingerprint unlock over [activity]; call the prompter on the main thread. The activity is held
      * weakly, because a call may run in a ViewModel scope that outlives it; when it is gone the
@@ -132,6 +136,8 @@ class KpmPlatformAdapter(
         override suspend fun listFolder(share: String, path: List<String>): FolderResult = setup.listFolder(share, path)
 
         override suspend fun chooseFile(share: String, filePath: List<String>): ChooseResult = setup.chooseFile(share, filePath)
+
+        override suspend fun olderVersion(share: String, filePath: List<String>): OlderVersion? = setup.olderVersion(share, filePath)
 
         override fun close() = setup.close()
     }

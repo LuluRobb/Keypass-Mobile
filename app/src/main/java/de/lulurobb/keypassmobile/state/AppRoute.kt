@@ -6,7 +6,7 @@ import java.util.UUID
 
 /** Which screen the app shows. Derived from the platform state by [computeRoute], never stored. */
 sealed interface AppRoute {
-    /** Server form or file browser of a source flow (setup steps 1 and 2, "Quelle ändern"). */
+    /** Source choice, server form or file browser of a source flow (setup steps 1 and 2, "Quelle verwalten"). */
     data class SourceFlow(val mode: SourceFlowMode, val screen: SourceFlowScreen) : AppRoute
 
     /** Setup step 4. */
@@ -28,8 +28,11 @@ sealed interface InAppScreen {
 
     data object Settings : InAppScreen
 
-    /** "Quelle ändern" from the settings (a [SourceFlowMode.ChangeUnlocked] flow). */
-    data object ChangeSource : InAppScreen
+    /**
+     * "Quelle verwalten" from the settings or the SMB banner action (a [SourceFlowMode.ChangeUnlocked]
+     * flow). [start] is the first screen of the flow: Choose, or Server for "SMB-Freigabe ändern".
+     */
+    data class ChangeSource(val start: SourceFlowScreen) : InAppScreen
 }
 
 /** A source flow that takes the screen by itself: [SourceFlowMode.FirstRun] or [SourceFlowMode.ChangeLocked]. [screen] null = it shows nothing. */
@@ -38,12 +41,13 @@ data class ActiveFlow(val mode: SourceFlowMode, val screen: SourceFlowScreen?)
 /**
  * The route for the given platform state, first match wins:
  * 1. an [ActiveFlow] that shows a screen: that screen
- * 2. no source: setup step 1
+ * 2. no source: setup step 1 (the source choice)
  * 3. unlocked, setup not completed: setup step 4
  * 4. not unlocked (locked or unlocking): the unlock screen
  * 5. otherwise the top of [stack]; the entry list when it is empty
  *
- * [changeScreen] is the screen of the unlocked source change, used when [InAppScreen.ChangeSource] is on top.
+ * [changeScreen] is the screen of the unlocked source change, used when [InAppScreen.ChangeSource] is on top
+ * (before the flow exists, the start screen of that entry).
  */
 fun computeRoute(
     unlocked: Boolean,
@@ -55,14 +59,14 @@ fun computeRoute(
 ): AppRoute {
     val flowScreen = flow?.screen
     if (flow != null && flowScreen != null) return AppRoute.SourceFlow(flow.mode, flowScreen)
-    if (!hasSource) return AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Server)
+    if (!hasSource) return AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Choose)
     if (unlocked && !setupCompleted) return AppRoute.SystemSetup
     if (!unlocked) return AppRoute.Unlock(firstRun = !setupCompleted)
     return when (val top = stack.lastOrNull()) {
         null -> AppRoute.EntryList
         is InAppScreen.Detail -> AppRoute.EntryDetail(top.id)
         InAppScreen.Settings -> AppRoute.Settings
-        InAppScreen.ChangeSource ->
-            AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, changeScreen ?: SourceFlowScreen.Server)
+        is InAppScreen.ChangeSource ->
+            AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, changeScreen ?: top.start)
     }
 }

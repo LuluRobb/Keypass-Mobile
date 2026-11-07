@@ -3,15 +3,21 @@ package de.lulurobb.keypassmobile.ui.unlock
 import de.lulurobb.keypassmobile.model.FillTarget
 import de.lulurobb.keypassmobile.platform.biometric.FingerprintAvailability
 import de.lulurobb.keypassmobile.platform.session.PasswordRequiredReason
+import de.lulurobb.keypassmobile.platform.session.SyncInfo
 import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.session.UnlockOffer
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
+import de.lulurobb.keypassmobile.platform.settings.FileSource
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
+import de.lulurobb.keypassmobile.platform.settings.SourceConfig
 import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.AppPlatform
 import de.lulurobb.keypassmobile.state.FingerprintPrompter
 import de.lulurobb.keypassmobile.state.SessionView
 import de.lulurobb.keypassmobile.state.TimeSource
+import de.lulurobb.keypassmobile.state.databaseLoadedMessage
+import de.lulurobb.keypassmobile.state.sourceKindOf
 import de.lulurobb.keypassmobile.state.syncResultMessage
 import de.lulurobb.keypassmobile.state.unlockMessage
 import de.lulurobb.keypassmobile.ui.common.UiMessage
@@ -40,7 +46,7 @@ import kotlinx.coroutines.launch
 class UnlockModel(
     private val platform: AppPlatform,
     private val scope: CoroutineScope,
-    @Suppress("unused") private val time: TimeSource,
+    private val time: TimeSource,
     private val messages: AppMessages,
     private val fillTarget: FillTarget?,
     private val firstRun: Boolean,
@@ -60,7 +66,6 @@ class UnlockModel(
         /** The user's choice for the switch in the first run; null follows [fingerprintAvailable]. */
         val fingerprintWantedByUser: Boolean? = null,
         val fingerprintAvailable: Boolean = false,
-        val fileSizeBytes: Long? = null,
     )
 
     private val inner = MutableStateFlow(
@@ -72,8 +77,9 @@ class UnlockModel(
         ),
     )
 
-    val state: StateFlow<UnlockState> = combine(inner, platform.settings, platform.session) { inner, settings, session -> build(inner, settings, session) }
-        .stateIn(scope, SharingStarted.Eagerly, build(inner.value, platform.settings.value, platform.session.value))
+    val state: StateFlow<UnlockState> = combine(inner, platform.settings, platform.session, platform.sync) { inner, settings, session, sync ->
+        build(inner, settings, session, sync)
+    }.stateIn(scope, SharingStarted.Eagerly, build(inner.value, platform.settings.value, platform.session.value, platform.sync.value))
 
     private val mutablePromptToken = MutableStateFlow(0)
 
@@ -142,11 +148,6 @@ class UnlockModel(
         }
     }
 
-    /** Size of the loaded file for "Vom Share geladen"; the setup flow sets it, null hides the line. */
-    fun setFirstRunFileSize(bytes: Long?) {
-        inner.update { it.copy(fileSizeBytes = bytes) }
-    }
-
     fun onFingerprintWantedChange(wanted: Boolean) {
         inner.update { it.copy(fingerprintWantedByUser = wanted) }
     }
@@ -190,15 +191,16 @@ class UnlockModel(
     fun onSyncNow() {
         if (syncing) return
         syncing = true
+        val kind = sourceKindOf(platform.settings.value)
         messages.post(UiMessage.SyncStarted)
         scope.launch {
             try {
                 val result = platform.syncNow()
                 if (result == SyncResult.CandidateReady || result == SyncResult.UpToDate) {
                     inner.update { it.copy(problem = null) }
-                    messages.post(UiMessage.DatabaseLoaded)
+                    messages.post(databaseLoadedMessage(kind))
                 } else {
-                    syncResultMessage(result)?.let(messages::post)
+                    syncResultMessage(result, kind)?.let(messages::post)
                 }
             } finally {
                 syncing = false
@@ -223,7 +225,7 @@ class UnlockModel(
                 clearInput?.invoke()
                 inner.update { it.copy(lockNotice = null) }
                 lastFingerprintStored = outcome.fingerprintRenewedForDays != null
-                val message = unlockMessage(outcome)
+                val message = unlockMessage(outcome, sourceKindOf(platform.settings.value))
                 // The setup posts SetupDone instead of "Fingerabdruck ist wieder aktiv".
                 if (message != null && !(firstRun && message is UiMessage.FingerprintRenewed)) messages.post(message)
             }
@@ -276,9 +278,12 @@ class UnlockModel(
     private fun fingerprintAvailableNow(): Boolean =
         platform.fingerprintAvailability() == FingerprintAvailability.AVAILABLE
 
-    private fun build(inner: Inner, settings: KpmSettings, session: SessionView): UnlockState =
+    private fun build(inner: Inner, settings: KpmSettings, session: SessionView, sync: SyncInfo): UnlockState =
         UnlockState(
             fileName = settings.source?.fileName.orEmpty(),
+            sourceKind = sourceKindOf(settings),
+            place = placeOf(settings.source),
+            modified = sync.status.localModified?.let(time::local),
             mode = inner.mode,
             fingerprintUsable = inner.fingerprintUsable,
             passwordReason = inner.reason,
@@ -288,7 +293,6 @@ class UnlockModel(
             firstRun = if (firstRun) {
                 FirstRunUnlock(
                     step = SetupStep(3),
-                    fileSizeBytes = inner.fileSizeBytes,
                     passwordIntervalDays = settings.passwordInterval.days,
                     fingerprintWanted = inner.fingerprintWantedByUser ?: inner.fingerprintAvailable,
                     fingerprintAvailable = inner.fingerprintAvailable,
@@ -299,4 +303,14 @@ class UnlockModel(
             problem = inner.problem,
             lockNotice = inner.lockNotice,
         )
+}
+
+/**
+ * Where the database lies, for the line under the name (EN-07). SMB: the UNC path of the folder with the
+ * host as the user typed it; file: the place found at the pick (null when the provider gave none).
+ */
+internal fun placeOf(source: SourceConfig?): String? = when (source) {
+    is SmbSource -> "\\\\" + (listOf(source.host, source.share) + source.filePath.dropLast(1)).joinToString("\\")
+    is FileSource -> source.place
+    null -> null
 }

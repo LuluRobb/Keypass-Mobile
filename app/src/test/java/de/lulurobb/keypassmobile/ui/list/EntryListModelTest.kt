@@ -3,6 +3,10 @@ package de.lulurobb.keypassmobile.ui.list
 import de.lulurobb.keypassmobile.core.sync.OpenedVersion
 import de.lulurobb.keypassmobile.core.sync.SyncProblem
 import de.lulurobb.keypassmobile.platform.session.SyncResult
+import de.lulurobb.keypassmobile.platform.settings.FileSource
+import de.lulurobb.keypassmobile.platform.settings.KpmSettings
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.FakeAppPlatform
 import de.lulurobb.keypassmobile.state.SessionView
@@ -13,6 +17,7 @@ import de.lulurobb.keypassmobile.state.testTime
 import de.lulurobb.keypassmobile.state.testVault
 import de.lulurobb.keypassmobile.state.unlockedView
 import de.lulurobb.keypassmobile.ui.common.UiMessage
+import de.lulurobb.keypassmobile.ui.components.OfflineReason
 import de.lulurobb.keypassmobile.ui.components.SyncStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -270,5 +275,102 @@ class EntryListModelTest {
         runCurrent()
         assertEquals(listOf("lock"), platform.calls)
         assertNull(model.view.value)
+    }
+
+    // ---- source type: banner, chip kind and messages ----
+
+    private val smb = SmbSource("nas.local", 445, "", "kpmtest", "daten", listOf("KeePass", "pw.kdbx"))
+    private val file = FileSource("content://docs/doc/1", "Passwoerter.kdbx", "Interner Speicher / Syncthing")
+
+    @Test
+    fun `a missing file shows the source banner of a file and the file kind in the sync state`() = runTest {
+        platform.settingsFlow.value = KpmSettings(source = file)
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.NOT_FOUND)
+        val model = model()
+        val state = model.state()
+        assertEquals(SourceKind.FILE, state.sync.kind)
+        val banner = assertIs<ListBanner.SourceMissing>(state.banner)
+        assertEquals(SourceProblem.FILE_NOT_FOUND, banner.problem)
+        assertNull(banner.smbUser)
+        assertEquals(
+            SyncStatus.OfflineCopy(banner.copyFrom, OfflineReason.LocalFileNotFound),
+            state.sync.status,
+        )
+    }
+
+    @Test
+    fun `a failed SMB login shows the source banner with the user`() = runTest {
+        platform.settingsFlow.value = KpmSettings(source = smb)
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.AUTH_FAILED)
+        val model = model()
+        val banner = assertIs<ListBanner.SourceMissing>(model.state().banner)
+        assertEquals(SourceProblem.SMB_LOGIN_FAILED, banner.problem)
+        assertEquals("kpmtest", banner.smbUser)
+        assertEquals(SourceKind.SMB, model.state().sync.kind)
+    }
+
+    @Test
+    fun `the source banner replaces the rejected version banner and cannot be dismissed`() = runTest {
+        platform.settingsFlow.value = KpmSettings(source = file)
+        platform.sessionFlow.value = unlockedView(testVault(listOf(paypal)), newVersionRejected = true)
+        val model = model()
+        assertEquals(SourceKind.FILE, assertIs<ListBanner.NewVersionRejected>(model.state().banner).kind)
+
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.ACCESS_DENIED)
+        runCurrent()
+        assertEquals(SourceProblem.FILE_NO_ACCESS, assertIs<ListBanner.SourceMissing>(model.state().banner).problem)
+
+        model.onBannerDismiss()
+        runCurrent()
+        assertIs<ListBanner.SourceMissing>(model.state().banner)
+
+        // Source works again: the normal rules apply (the dismissed rejected banner stays hidden).
+        platform.syncFlow.value = testSyncInfo()
+        runCurrent()
+        assertNull(model.state().banner)
+    }
+
+    @Test
+    fun `an unreachable share shows no banner`() = runTest {
+        platform.settingsFlow.value = KpmSettings(source = smb)
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.UNREACHABLE)
+        val model = model()
+        assertNull(model.state().banner)
+    }
+
+    @Test
+    fun `the banner follows a switch of the source type`() = runTest {
+        platform.settingsFlow.value = KpmSettings(source = smb)
+        platform.syncFlow.value = testSyncInfo(openedVersion = OpenedVersion.OFFLINE_COPY, lastProblem = SyncProblem.NOT_FOUND)
+        val model = model()
+        assertEquals(SourceProblem.SMB_NOT_FOUND, assertIs<ListBanner.SourceMissing>(model.state().banner).problem)
+        platform.settingsFlow.value = KpmSettings(source = file)
+        runCurrent()
+        assertEquals(SourceProblem.FILE_NOT_FOUND, assertIs<ListBanner.SourceMissing>(model.state().banner).problem)
+    }
+
+    @Test
+    fun `sync now of a file source posts the file messages`() = runTest {
+        platform.settingsFlow.value = KpmSettings(source = file)
+        val model = model()
+        platform.syncResults += SyncResult.UpToDate
+        model.onSyncNow()
+        runCurrent()
+        assertEquals(UiMessage.SyncFileUnchanged, messages.message.value)
+
+        platform.syncResults += SyncResult.Updated
+        model.onSyncNow()
+        runCurrent()
+        assertEquals(UiMessage.SyncUpdatedFile, messages.message.value)
+
+        platform.syncResults += SyncResult.Failed(SyncProblem.NOT_FOUND)
+        model.onSyncNow()
+        runCurrent()
+        assertEquals(UiMessage.SyncFileNotFound, messages.message.value)
+
+        platform.syncResults += SyncResult.Failed(SyncProblem.ACCESS_DENIED)
+        model.onSyncNow()
+        runCurrent()
+        assertEquals(UiMessage.SyncFileNoAccess, messages.message.value)
     }
 }

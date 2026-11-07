@@ -3,6 +3,7 @@
     <!-- Same value as the light surface color in ui/theme/Color.kt. -->
     <color name="kpm_window_background">#FFF5FAF8</color>
 
-    <!-- Launcher icon background, same value as the light primary color in ui/theme/Theme.kt. -->
-    <color name="ic_launcher_background">#FF1D6A62</color>
+    <!-- Launcher icon background gradient, top left to bottom right (design/logo/logo.svg). -->
+    <color name="ic_launcher_gradient_start">#FF12384F</color>
+    <color name="ic_launcher_gradient_end">#FF26968A</color>
 </resources>

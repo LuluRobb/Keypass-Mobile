@@ -10,13 +10,20 @@ import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.session.SyncTrigger
 import de.lulurobb.keypassmobile.platform.session.UnlockOffer
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
+import de.lulurobb.keypassmobile.platform.settings.FileSource
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
-import de.lulurobb.keypassmobile.platform.settings.SourceConfig
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.platform.setup.ChooseResult
+import de.lulurobb.keypassmobile.platform.setup.FileCheck
+import de.lulurobb.keypassmobile.platform.setup.OlderVersion
+import de.lulurobb.keypassmobile.platform.setup.PickedFile
 import de.lulurobb.keypassmobile.platform.setup.ConnectResult
 import de.lulurobb.keypassmobile.platform.setup.ServerInfo
 import de.lulurobb.keypassmobile.platform.setup.ShareEntry
 import de.lulurobb.keypassmobile.ui.common.CopiedValue
+import de.lulurobb.keypassmobile.ui.common.PickFailure
+import de.lulurobb.keypassmobile.ui.common.SourceAction
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.detail.EntryDetailModel
 import de.lulurobb.keypassmobile.ui.list.EntryListModel
@@ -26,12 +33,14 @@ import de.lulurobb.keypassmobile.ui.setup.SourceFlowModel
 import de.lulurobb.keypassmobile.ui.setup.SourceFlowScreen
 import de.lulurobb.keypassmobile.ui.unlock.UnlockModel
 import de.lulurobb.keypassmobile.ui.unlock.UnlockProblem
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -56,7 +65,7 @@ class AppControllerTest {
         encrypted = true,
     )
 
-    private fun source() = SourceConfig(
+    private fun source() = SmbSource(
         host = "nas.local",
         port = 445,
         domain = "",
@@ -91,9 +100,11 @@ class AppControllerTest {
 
     /** Server form to browser of a first-run flow. */
     private fun TestScope.connectFirstRun(flow: SourceFlowModel) {
+        flow.onChooseSmb()
         setup.connectResults += ConnectResult.Connected(server, listOf(ShareEntry("Docs", "")))
         flow.onHostChange("nas.local")
         flow.onUserChange("luca")
+        flow.onChooseSmb()
         flow.readPassword = { "geheim".toCharArray() }
         flow.onConnect()
         runCurrent()
@@ -110,7 +121,9 @@ class AppControllerTest {
 
     /** Source change from the prefilled form to saved (both change modes). */
     private fun TestScope.saveChange(flow: SourceFlowModel) {
+        flow.onChooseSmb()
         setup.connectResults += ConnectResult.Connected(server, null)
+        flow.onChooseSmb()
         flow.readPassword = { "geheim".toCharArray() }
         flow.onConnect()
         runCurrent()
@@ -123,10 +136,10 @@ class AppControllerTest {
     // ---- first run ----
 
     @Test
-    fun `first run goes from the server form over unlock and system setup to the list`() = runTest {
+    fun `first run goes from the choice and the server form over unlock and system setup to the list`() = runTest {
         platform.settingsFlow.value = KpmSettings()
         val controller = controller()
-        assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Server), controller.routeNow)
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Choose), controller.routeNow)
 
         val flow = controller.sourceModel()
         connectFirstRun(flow)
@@ -135,7 +148,6 @@ class AppControllerTest {
         saveFirstRun(flow)
         assertEquals(AppRoute.Unlock(firstRun = true), controller.routeNow)
         val unlock = controller.unlockModel()
-        assertEquals(4096L, unlock.state.value.firstRun?.fileSizeBytes)
         assertFalse(setup.closed)
 
         platform.unlockOutcomes += unlocked()
@@ -174,9 +186,8 @@ class AppControllerTest {
         assertSame(flow, controller.sourceModel())
         assertFalse(setup.closed)
 
-        saveFirstRun(flow, size = 8192L)
+        saveFirstRun(flow)
         assertEquals(AppRoute.Unlock(firstRun = true), controller.routeNow)
-        assertEquals(8192L, controller.unlockModel().state.value.firstRun?.fileSizeBytes)
     }
 
     @Test
@@ -201,6 +212,9 @@ class AppControllerTest {
         assertTrue(first.onBack())
         runCurrent()
         assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Server), first.routeNow)
+        assertTrue(first.onBack())
+        runCurrent()
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Choose), first.routeNow)
         assertFalse(first.onBack())
     }
 
@@ -303,7 +317,7 @@ class AppControllerTest {
 
         platform.settingsFlow.value = completed.copy(source = null)
         runCurrent()
-        assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Server), controller.routeNow)
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Choose), controller.routeNow)
         platform.settingsFlow.value = completed
         runCurrent()
         assertEquals(AppRoute.EntryList, controller.routeNow)
@@ -315,7 +329,7 @@ class AppControllerTest {
         controller.openSettings()
         controller.editSource()
         runCurrent()
-        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Server), controller.routeNow)
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Choose), controller.routeNow)
         val flow = controller.sourceModel()
 
         saveChange(flow)
@@ -332,6 +346,7 @@ class AppControllerTest {
         runCurrent()
         setup.connectResults += ConnectResult.Connected(server, null)
         val flow = controller.sourceModel()
+        flow.onChooseSmb()
         flow.readPassword = { "geheim".toCharArray() }
         flow.onConnect()
         runCurrent()
@@ -344,6 +359,11 @@ class AppControllerTest {
         }
         assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Server), controller.routeNow)
         assertFalse(setup.closed)
+
+        // Form to choice, then the choice is left.
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Choose), controller.routeNow)
 
         assertTrue(controller.onBack())
         runCurrent()
@@ -369,6 +389,7 @@ class AppControllerTest {
         // The source setup (and its connection) is opened by the connect.
         setup.connectResults += ConnectResult.Connected(server, null)
         val flow = controller.sourceModel()
+        flow.onChooseSmb()
         flow.readPassword = { "geheim".toCharArray() }
         flow.onConnect()
         runCurrent()
@@ -578,8 +599,9 @@ class AppControllerTest {
         val controller = controller()
         controller.chooseSource()
         runCurrent()
-        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Server), controller.routeNow)
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Choose), controller.routeNow)
         setup.connectResults += ConnectResult.Connected(server, null)
+        controller.sourceModel().onChooseSmb()
         controller.sourceModel().readPassword = { "geheim".toCharArray() }
         controller.sourceModel().onConnect()
         runCurrent()
@@ -606,7 +628,7 @@ class AppControllerTest {
 
         controller.chooseSource()
         runCurrent()
-        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Server), controller.routeNow)
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Choose), controller.routeNow)
 
         saveChange(controller.sourceModel())
         assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
@@ -633,6 +655,7 @@ class AppControllerTest {
         runCurrent()
         val flow = controller.sourceModel()
         setup.connectResults += ConnectResult.Connected(server, null)
+        flow.onChooseSmb()
         flow.readPassword = { "geheim".toCharArray() }
         flow.onConnect()
         runCurrent()
@@ -669,11 +692,12 @@ class AppControllerTest {
 
         controller.chooseSource()
         runCurrent()
-        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Server), controller.routeNow)
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeLocked, SourceFlowScreen.Choose), controller.routeNow)
         val flow = controller.sourceModel()
 
         // No password typed: the empty one is sent.
         setup.connectResults += ConnectResult.Connected(server, listOf(ShareEntry("Docs", "")))
+        flow.onChooseSmb()
         flow.readPassword = { CharArray(0) }
         flow.onConnect()
         runCurrent()
@@ -700,6 +724,7 @@ class AppControllerTest {
         runCurrent()
         val flow = controller.sourceModel()
         setup.connectResults += ConnectResult.Connected(server, null)
+        flow.onChooseSmb()
         flow.readPassword = { CharArray(0) }
         flow.onConnect()
         runCurrent()
@@ -812,6 +837,17 @@ class AppControllerTest {
     }
 
     @Test
+    fun `a newer version of a file source is worded for the file`() = runTest {
+        platform.settingsFlow.value = KpmSettings(
+            source = FileSource("content://docs/doc/1", "Passwoerter.kdbx", "Interner Speicher"),
+        )
+        val controller = controller()
+        assertEquals(UiMessage.SyncUpdatedFile, reportMessage(SyncTrigger.AFTER_UNLOCK, SyncResult.Updated, controller))
+        assertEquals(UiMessage.SyncUpdatedFile, reportMessage(SyncTrigger.SCHEDULED, SyncResult.Updated, controller))
+        assertNull(reportMessage(SyncTrigger.SCHEDULED, SyncResult.Failed(SyncProblem.NOT_FOUND), controller))
+    }
+
+    @Test
     fun `requested and setup runs are silent here`() = runTest {
         val controller = controller()
         for (trigger in listOf(SyncTrigger.REQUESTED, SyncTrigger.SETUP)) {
@@ -846,6 +882,7 @@ class AppControllerTest {
         val second = FakeSourceSetup()
         platform.nextSetup = { second }
         second.connectResults += ConnectResult.Connected(server, listOf(ShareEntry("Docs", "")))
+        flow.onChooseSmb()
         flow.readPassword = { "geheim".toCharArray() }
         flow.onConnect()
         runCurrent()
@@ -876,6 +913,263 @@ class AppControllerTest {
         controller.onStop()
     }
 
+    // ---- file on the phone ----
+
+    private val fileSource = FileSource("content://docs/document/primary%3APass.kdbx", "Pass.kdbx", "Interner Speicher")
+
+    private val pickedFile = PickedFile(
+        uri = fileSource.uri,
+        displayName = "Pass.kdbx",
+        sizeBytes = 4096L,
+        lastModified = Instant.parse("2026-09-12T18:05:00Z"),
+        place = "Interner Speicher",
+    )
+
+    private val AppController.fileSetup: FakeFileSetup get() = platform.let { (it as FakeAppPlatform).fileSetups.last() }
+
+    /** The picker result of the pending request; the platform has the file source before it answers. */
+    private fun TestScope.finishPick(controller: AppController, settings: KpmSettings? = null) {
+        val request = assertNotNull(controller.filePick.request.value)
+        controller.filePick.onLaunched(request.id)
+        controller.fileSetup.defaultAccept = FileCheck.Ok(pickedFile)
+        if (settings != null) platform.settingsFlow.value = settings
+        controller.filePick.onPicked(pickedFile.uri)
+        runCurrent()
+    }
+
+    @Test
+    fun `in the first run a file leads to step 3 and back from there to the choice`() = runTest {
+        platform.settingsFlow.value = KpmSettings()
+        val controller = controller()
+        val flow = controller.sourceModel()
+        flow.onChooseFile()
+        runCurrent()
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Choose), controller.routeNow)
+        assertEquals(false, controller.fileSetup.initialFolderCalls.single().changing)
+
+        finishPick(controller, KpmSettings(source = fileSource))
+        assertEquals(AppRoute.Unlock(firstRun = true), controller.routeNow)
+        assertNull(controller.messages.message.value)
+
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Choose), controller.routeNow)
+        assertSame(flow, controller.sourceModel())
+    }
+
+    @Test
+    fun `a first-run file after an SMB attempt closes the SMB connection`() = runTest {
+        platform.settingsFlow.value = KpmSettings()
+        val controller = controller()
+        val flow = controller.sourceModel()
+        connectFirstRun(flow)
+        assertFalse(setup.closed)
+        // Back to the choice and pick a file.
+        assertTrue(controller.onBack())
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.FirstRun, SourceFlowScreen.Choose), controller.routeNow)
+        flow.onChooseFile()
+        finishPick(controller, KpmSettings(source = fileSource))
+        assertEquals(AppRoute.Unlock(firstRun = true), controller.routeNow)
+        assertTrue(setup.closed)
+    }
+
+    @Test
+    fun `Quelle verwalten opens the choice of the current kind and a picked file returns to the settings`() = runTest {
+        platform.settingsFlow.value = completed.copy(source = fileSource)
+        platform.sessionFlow.value = unlockedView(vault)
+        val controller = controller()
+        controller.openSettings()
+        controller.editSource()
+        runCurrent()
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Choose), controller.routeNow)
+        assertEquals(SourceKind.FILE, controller.sourceModel().manageKind)
+
+        controller.sourceModel().onChooseFile()
+        runCurrent()
+        assertTrue(controller.fileSetup.initialFolderCalls.single().changing)
+        finishPick(controller)
+        assertEquals(AppRoute.Settings, controller.routeNow)
+        assertEquals(UiMessage.SourceSaved, controller.messages.message.value)
+    }
+
+    @Test
+    fun `a rejected file keeps the choice and its message, and the message goes with the next route`() = runTest {
+        val controller = unlockedController()
+        controller.openSettings()
+        controller.editSource()
+        runCurrent()
+        controller.sourceModel().onChooseFile()
+        runCurrent()
+        controller.fileSetup.acceptResults += FileCheck.NotKdbx("liesmich.txt")
+        val request = assertNotNull(controller.filePick.request.value)
+        controller.filePick.onLaunched(request.id)
+        controller.filePick.onPicked("content://docs/document/primary%3Aliesmich.txt")
+        runCurrent()
+
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Choose), controller.routeNow)
+        assertEquals(UiMessage.PickFailed(PickFailure.NotKdbx, "liesmich.txt"), controller.messages.message.value)
+
+        // The route changes (back to the settings): the message of the screen it came from is gone.
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.Settings, controller.routeNow)
+        assertNull(controller.messages.message.value)
+    }
+
+    @Test
+    fun `a message of another kind survives a route change`() = runTest {
+        val controller = unlockedController()
+        controller.messages.post(UiMessage.SyncUpdated)
+        controller.openSettings()
+        runCurrent()
+        assertEquals(UiMessage.SyncUpdated, controller.messages.message.value)
+    }
+
+    @Test
+    fun `the SMB banner action opens the server form with an empty password and back returns to the list`() = runTest {
+        val controller = unlockedController()
+        controller.onSourceAction(SourceAction.EditSmb)
+        runCurrent()
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Server), controller.routeNow)
+        val flow = controller.sourceModel()
+        assertEquals("nas.local", flow.form.value.host)
+        assertEquals(0, flow.password.length)
+
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.EntryList, controller.routeNow)
+        assertTrue(platform.setups.isEmpty())
+    }
+
+    @Test
+    fun `the SMB status action of the settings returns to the settings`() = runTest {
+        val controller = unlockedController()
+        controller.openSettings()
+        runCurrent()
+        controller.onSourceAction(SourceAction.EditSmb)
+        runCurrent()
+        assertEquals(AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Server), controller.routeNow)
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.Settings, controller.routeNow)
+    }
+
+    @Test
+    fun `the file banner action opens the picker in the folder of the current file and stays on the list`() = runTest {
+        platform.settingsFlow.value = completed.copy(source = fileSource)
+        platform.sessionFlow.value = unlockedView(vault)
+        val controller = controller()
+        controller.onSourceAction(SourceAction.RepickFile)
+        runCurrent()
+        assertNotNull(controller.filePick.request.value)
+        assertEquals(AppRoute.EntryList, controller.routeNow)
+        assertTrue(controller.fileSetup.initialFolderCalls.single().changing)
+
+        finishPick(controller)
+        assertEquals(AppRoute.EntryList, controller.routeNow)
+        assertEquals(UiMessage.SourceSaved, controller.messages.message.value)
+    }
+
+    @Test
+    fun `a file that locks the app for a new database shows only the lock notice`() = runTest {
+        platform.settingsFlow.value = completed.copy(source = fileSource)
+        platform.sessionFlow.value = unlockedView(vault)
+        val controller = controller()
+        controller.onSourceAction(SourceAction.RepickFile)
+        runCurrent()
+        controller.fileSetup.chooseResults += ChooseResult.Saved(4096L, true, SyncResult.CandidateReady, lockedForNewDatabase = true)
+        val request = assertNotNull(controller.filePick.request.value)
+        controller.filePick.onLaunched(request.id)
+        controller.fileSetup.defaultAccept = FileCheck.Ok(pickedFile)
+        controller.filePick.onPicked(pickedFile.uri)
+        // The switch locks the session before it answers.
+        platform.sessionFlow.value = SessionView.Locked(LockReason.SourceChanged)
+        runCurrent()
+        assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
+        assertEquals(UiMessage.LockedSourceChanged, controller.lockNotice())
+        assertNull(controller.messages.message.value)
+    }
+
+    @Test
+    fun `a pick that was started unlocked is discarded when the app locks before the result`() = runTest {
+        val controller = unlockedController()
+        controller.onSourceAction(SourceAction.RepickFile)
+        runCurrent()
+        val request = assertNotNull(controller.filePick.request.value)
+        controller.filePick.onLaunched(request.id)
+        platform.lock()
+        runCurrent()
+        controller.filePick.onPicked(pickedFile.uri)
+        runCurrent()
+        assertEquals(listOf(pickedFile.uri), controller.fileSetup.discarded)
+        assertTrue(controller.fileSetup.acceptCalls.isEmpty())
+        assertNull(controller.messages.message.value)
+        assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
+    }
+
+    @Test
+    fun `back does nothing while the file is read, and cancels the older dialog`() = runTest {
+        val controller = unlockedController()
+        controller.openSettings()
+        runCurrent()
+        controller.onSourceAction(SourceAction.RepickFile)
+        runCurrent()
+        val fake = controller.fileSetup
+        controller.filePick.onLaunched(assertNotNull(controller.filePick.request.value).id)
+        fake.defaultAccept = FileCheck.Ok(pickedFile)
+        val gate = CompletableDeferred<Unit>()
+        fake.acceptGate = gate
+        controller.filePick.onPicked(pickedFile.uri)
+        runCurrent()
+        testScheduler.advanceTimeBy(400)
+        assertTrue(controller.filePick.busy.value)
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.Settings, controller.routeNow)
+
+        fake.olderResults += OlderVersion("Pass.kdbx", Instant.parse("2026-09-12T18:05:00Z"), Instant.parse("2026-10-31T21:38:00Z"))
+        gate.complete(Unit)
+        runCurrent()
+        assertNotNull(controller.filePick.olderDialog.value)
+        assertTrue(controller.onBack())
+        assertNull(controller.filePick.olderDialog.value)
+        assertEquals(listOf(pickedFile.uri), fake.discarded)
+        assertEquals(AppRoute.Settings, controller.routeNow)
+    }
+
+    @Test
+    fun `a lock closes an open older dialog and discards the file`() = runTest {
+        val controller = unlockedController()
+        controller.onSourceAction(SourceAction.RepickFile)
+        runCurrent()
+        val fake = controller.fileSetup
+        controller.filePick.onLaunched(assertNotNull(controller.filePick.request.value).id)
+        fake.defaultAccept = FileCheck.Ok(pickedFile)
+        fake.olderResults += OlderVersion("Pass.kdbx", Instant.parse("2026-09-12T18:05:00Z"), Instant.parse("2026-10-31T21:38:00Z"))
+        controller.filePick.onPicked(pickedFile.uri)
+        runCurrent()
+        assertNotNull(controller.filePick.olderDialog.value)
+
+        platform.lock()
+        runCurrent()
+        assertNull(controller.filePick.olderDialog.value)
+        assertEquals(listOf(pickedFile.uri), fake.discarded)
+        assertTrue(fake.chooseCalls.isEmpty())
+    }
+
+    @Test
+    fun `close gives back a pick in progress`() = runTest {
+        val controller = unlockedController()
+        controller.onSourceAction(SourceAction.RepickFile)
+        runCurrent()
+        val fake = controller.fileSetup
+        controller.close()
+        assertTrue(fake.closed)
+        assertNull(controller.filePick.request.value)
+    }
+
     // ---- misc ----
 
     @Test
@@ -886,6 +1180,7 @@ class AppControllerTest {
         controller.chooseSource()
         runCurrent()
         setup.connectResults += ConnectResult.Connected(server, null)
+        controller.sourceModel().onChooseSmb()
         controller.sourceModel().readPassword = { "geheim".toCharArray() }
         controller.sourceModel().onConnect()
         runCurrent()

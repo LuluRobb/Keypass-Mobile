@@ -31,11 +31,34 @@ if (!hasReleaseSigning && releaseSigning.values.any { it != null }) {
     throw GradleException("Release signing is incomplete, missing: ${missing.joinToString()}")
 }
 
+// Dev signing for the "dev" build type (dev channel, installs next to the release app). Own
+// key, own names: KPM_DEV_* environment variables (GitHub environment "dev") or the dev*
+// entries of keystore.properties. It never falls back to the release values. Without any
+// value the dev APK is signed with the debug key, so it still installs on an emulator.
+// KPM_REQUIRE_DEV_SIGNING=true (set by the dev workflow) makes missing values fatal, so CI
+// can never publish a debug-signed dev APK.
+val devSigning = mapOf(
+    "storeFile" to signingValue("KPM_DEV_KEYSTORE_FILE", "devStoreFile"),
+    "storePassword" to signingValue("KPM_DEV_KEYSTORE_PASSWORD", "devStorePassword"),
+    "keyAlias" to signingValue("KPM_DEV_KEY_ALIAS", "devKeyAlias"),
+    "keyPassword" to signingValue("KPM_DEV_KEY_PASSWORD", "devKeyPassword"),
+)
+val hasDevSigning = devSigning.values.all { it != null }
+val requireDevSigning = providers.environmentVariable("KPM_REQUIRE_DEV_SIGNING").orNull == "true"
+if (!hasDevSigning && (requireDevSigning || devSigning.values.any { it != null })) {
+    val missing = devSigning.filterValues { it == null }.keys
+    throw GradleException("Dev signing is incomplete or required, missing: ${missing.joinToString()}")
+}
+
 // Versioning. The base version is maintained by hand. GitHub Actions passes the workflow
 // run number as KPM_BUILD_NUMBER: versionCode = N, versionName = <base>.N (e.g. 0.1.0.3),
 // like the BUILD part of Chromium versions. The number keeps rising across base versions.
 // Local builds have no build number: versionCode 1, versionName <base>-dev.
-val baseVersion = "0.1.0"
+// The "dev" build type keeps the same versionCode but names its version <base>-dev.N
+// (e.g. 0.1.0-dev.7), or <base>-dev without a build number (see androidComponents below).
+// Bump rule: major (x.0.0) only with the owner's approval, minor (0.x.0) per new feature,
+// patch (0.0.x) per bug fix or small change; once per release cycle, bumped on development.
+val baseVersion = "0.2.0"
 val buildNumber: Int? = providers.environmentVariable("KPM_BUILD_NUMBER").orNull
     ?.takeIf { it.isNotBlank() }
     ?.let { raw ->
@@ -66,6 +89,14 @@ android {
                 keyPassword = releaseSigning.getValue("keyPassword")
             }
         }
+        if (hasDevSigning) {
+            create("dev") {
+                storeFile = rootProject.file(devSigning.getValue("storeFile")!!)
+                storePassword = devSigning.getValue("storePassword")
+                keyAlias = devSigning.getValue("keyAlias")
+                keyPassword = devSigning.getValue("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -79,6 +110,17 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (hasReleaseSigning) signingConfig = signingConfigs.getByName("release")
         }
+        // Test builds of the dev channel: same R8 setup and keep rules as release, but a
+        // separate app (suffix .dev, name "KeyPass Dev", see src/dev/res) that installs next
+        // to the release app. No debug source set (gallery, E2E hooks). Never signed with
+        // the release key: the dev key, or the debug key when no dev values exist locally.
+        create("dev") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".dev"
+            // The libraries only have debug and release.
+            matchingFallbacks += listOf("release")
+            signingConfig = signingConfigs.getByName(if (hasDevSigning) "dev" else "debug")
+        }
     }
 
     compileOptions {
@@ -88,6 +130,18 @@ android {
 
     buildFeatures {
         compose = true
+    }
+}
+
+androidComponents {
+    // The unit tests already run for debug and release; a third run for dev would only repeat them.
+    beforeVariants(selector().withBuildType("dev")) { variant ->
+        variant.hostTests[com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE]?.enable = false
+    }
+    onVariants(selector().withBuildType("dev")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionName.set(if (buildNumber != null) "$baseVersion-dev.$buildNumber" else "$baseVersion-dev")
+        }
     }
 }
 

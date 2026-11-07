@@ -13,6 +13,9 @@
 
     <string name="platform_clip_label">KeyPass Mobile</string>
 
+    <!-- Place text of a file on the internal storage, e.g. "Interner Speicher / Syncthing / KeePass" (DS-09). -->
+    <string name="platform_internal_storage">Interner Speicher</string>
+
     <plurals name="platform_duration_seconds">
         <item quantity="one">%d Sekunde</item>
         <item quantity="other">%d Sekunden</item>

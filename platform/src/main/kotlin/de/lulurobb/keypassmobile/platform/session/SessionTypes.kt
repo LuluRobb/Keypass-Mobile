@@ -44,6 +44,9 @@ sealed interface SessionState {
 
         internal fun rejected() = Unlocked(vault, index, keySource, newVersionOpened, newVersionRejected = true, version)
 
+        /** The share has the open version again: the banner of a rejected newer file ends. */
+        internal fun rejectionCleared() = Unlocked(vault, index, keySource, newVersionOpened, newVersionRejected = false, version)
+
         override fun toString(): String = "Unlocked($keySource, v$version)"
     }
 }
@@ -71,9 +74,10 @@ sealed interface LockReason {
     data object ServiceRefused : LockReason
 
     /**
-     * The SMB source was changed (settings) to a file that the key of the open
-     * vault does not open. The old vault was locked so that no old data is
-     * shown or autofilled; unlock with the master password of the new file.
+     * The source was changed (settings) to another file or share (SMB or a file on
+     * the phone) whose file the key of the open vault does not open. The old vault
+     * was locked so that no old data is shown or autofilled; unlock with the master
+     * password of the new file.
      */
     data object SourceChanged : LockReason
 }

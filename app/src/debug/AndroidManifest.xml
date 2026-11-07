@@ -26,6 +26,17 @@
                 <category android:name="android.intent.category.INFO" />
             </intent-filter>
         </activity>
+
+        <!-- E2E hook: releases all persisted URI grants (see E2eHooks.kt). Exported for adb, but only
+             callers holding DUMP (the adb shell) may send to it. Not part of the release build. -->
+        <receiver
+            android:name=".debug.ReleaseUriGrantsReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="de.lulurobb.keypassmobile.debug.RELEASE_URI_GRANTS" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

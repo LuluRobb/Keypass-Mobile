@@ -34,6 +34,14 @@ fun looksLikeKdbx(file: File): Boolean {
 }
 
 /**
+ * Returns true if [start] (the first bytes of a file, at least 12) carries the
+ * KDBX signatures of KeePass 2.x. KDB (KeePass 1), text and too short input
+ * give false. Needs no key and reads nothing but the given bytes.
+ */
+fun isKdbxSignature(start: ByteArray): Boolean =
+    KdbxHeader.inspect(start) is KdbxHeader.Inspection.Kdbx
+
+/**
  * Minimal reader for the unencrypted outer KDBX header (3.x and 4.x). Only
  * used to check signatures and to explain why kotpass could not open a file.
  * Never needed for a successful open.

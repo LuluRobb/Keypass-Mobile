@@ -5,8 +5,12 @@ import de.lulurobb.keypassmobile.core.sync.RemoteError
 import de.lulurobb.keypassmobile.kdbx.KdbxOpenException
 import de.lulurobb.keypassmobile.platform.kdbx.KdbxVaultOpener
 import de.lulurobb.keypassmobile.platform.keystore.SmbPasswordStore
+import de.lulurobb.keypassmobile.platform.settings.FileSource
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
+import de.lulurobb.keypassmobile.platform.settings.PrefsSettingsRepository
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.settings.SourceConfig
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
 import de.lulurobb.keypassmobile.platform.setup.BrowseError
 import de.lulurobb.keypassmobile.platform.setup.ConnectError
@@ -18,6 +22,8 @@ import de.lulurobb.keypassmobile.smb.FolderItem
 import de.lulurobb.keypassmobile.smb.FolderListing
 import de.lulurobb.keypassmobile.smb.SmbException
 import de.lulurobb.keypassmobile.smb.SmbServer
+import android.content.SharedPreferences
+import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
@@ -91,7 +97,7 @@ class MappingTest {
     fun `remembered GUID applies only to the host of the current source`() {
         val guid = UUID.randomUUID()
         val settings = KpmSettings(
-            source = SourceConfig("192.168.178.20", 445, "", "kpm", "daten", listOf("db.kdbx")),
+            source = SmbSource("192.168.178.20", 445, "", "kpm", "daten", listOf("db.kdbx")),
             trustedServer = TrustedServer(guid, Instant.EPOCH),
         )
         assertEquals(guid, SourceSetup.rememberedGuidFor(settings, SmbServer("192.168.178.20", username = "x")))
@@ -130,8 +136,8 @@ class MappingTest {
 
     @Test
     fun `source identity is case-insensitive and keeps the folder of the file`() {
-        val a = SourceConfig("NAS", 445, "", "kpm", "Daten", listOf("KeePass", "Passwords.kdbx"))
-        val b = SourceConfig("nas", 445, "", "other", "daten", listOf("keepass", "passwords.KDBX"))
+        val a = SmbSource("NAS", 445, "", "kpm", "Daten", listOf("KeePass", "Passwords.kdbx"))
+        val b = SmbSource("nas", 445, "", "other", "daten", listOf("keepass", "passwords.KDBX"))
         assertTrue(a.sameFileAs(b))
         assertFalse(a.sameFileAs(b.copy(filePath = listOf("Passwords.kdbx"))))
         assertFalse(a.sameFileAs(null))
@@ -149,5 +155,194 @@ class MappingTest {
         assertContentEquals(text.toByteArray(Charsets.UTF_8), bytes)
         assertContentEquals(password, SmbPasswordStore.fromUtf8(bytes))
         assertEquals(0, SmbPasswordStore.utf8(CharArray(0)).size)
+    }
+
+    // ---- persisted source (DS-08), migration from version 1 ----
+
+    private val smb = SmbSource("192.168.178.20", 4450, "WORK", "kpm", "daten", listOf("Ärzte", "db.kdbx"))
+    private val file = FileSource("content://com.example.docs/document/primary%3ASync%2Fdb.kdbx", "db.kdbx", "Interner Speicher / Sync")
+
+    /** Prefs as an installation before the file source wrote them: version 1, SMB keys, no source.type. */
+    private fun oldPrefs() = FakePrefs().apply {
+        values["version"] = 1
+        values["source.host"] = "192.168.178.20"
+        values["source.port"] = 4450
+        values["source.domain"] = "WORK"
+        values["source.user"] = "kpm"
+        values["source.share"] = "daten"
+        values["source.path"] = "Ärzte/db.kdbx"
+        values["setup.completed"] = true
+        values["unlock.fingerprint"] = true
+        values["server.guid"] = reitanoGuid.toString()
+        values["server.since"] = 1_000L
+    }
+
+    private fun roundTrip(settings: KpmSettings): KpmSettings {
+        val prefs = FakePrefs()
+        PrefsSettingsRepository.write(prefs.edit(), settings).apply()
+        return PrefsSettingsRepository.read(prefs)
+    }
+
+    @Test
+    fun `old prefs without a source type read as an SMB source`() {
+        val read = PrefsSettingsRepository.read(oldPrefs())
+        assertEquals(smb, read.source)
+        assertEquals(SourceKind.SMB, read.source!!.kind)
+        assertTrue(read.setupCompleted)
+        assertTrue(read.fingerprintEnabled)
+        assertEquals(reitanoGuid, read.trustedServer!!.guid)
+        assertNull(read.lastPickedFolder)
+    }
+
+    @Test
+    fun `reading old prefs rewrites nothing, the next update writes version 2 with the type`() {
+        val prefs = oldPrefs()
+        val repository = PrefsSettingsRepository(prefs)
+        assertEquals(smb, repository.settings.value.source)
+        assertEquals(1, prefs.values["version"])
+        assertFalse(prefs.values.containsKey("source.type"))
+
+        repository.update { it.copy(idleTimeout = IdleTimeout.entries.last()) }
+        assertEquals(2, prefs.values["version"])
+        assertEquals("smb", prefs.values["source.type"])
+        assertEquals(smb, PrefsSettingsRepository.read(prefs).source)
+    }
+
+    @Test
+    fun `SMB source round trip`() {
+        assertEquals(smb, roundTrip(KpmSettings(source = smb)).source)
+    }
+
+    @Test
+    fun `file source round trip with and without a place`() {
+        assertEquals(file, roundTrip(KpmSettings(source = file)).source)
+        val noPlace = file.copy(place = null)
+        assertEquals(noPlace, roundTrip(KpmSettings(source = noPlace)).source)
+        assertEquals(SourceKind.FILE, noPlace.kind)
+        assertEquals("db.kdbx", noPlace.fileName)
+    }
+
+    @Test
+    fun `no source leaves no source keys`() {
+        val prefs = FakePrefs()
+        PrefsSettingsRepository.write(prefs.edit(), KpmSettings(source = smb)).apply()
+        PrefsSettingsRepository.write(prefs.edit(), KpmSettings(source = null)).apply()
+        assertNull(PrefsSettingsRepository.read(prefs).source)
+        assertTrue(prefs.values.keys.none { it.startsWith("source.") })
+    }
+
+    @Test
+    fun `writing one kind of source removes the keys of the other kind`() {
+        val prefs = FakePrefs()
+        PrefsSettingsRepository.write(prefs.edit(), KpmSettings(source = smb)).apply()
+        PrefsSettingsRepository.write(prefs.edit(), KpmSettings(source = file)).apply()
+        assertEquals("file", prefs.values["source.type"])
+        assertEquals(
+            setOf("source.type", "source.uri", "source.name", "source.place"),
+            prefs.values.keys.filter { it.startsWith("source.") }.toSet(),
+        )
+        assertEquals(file, PrefsSettingsRepository.read(prefs).source)
+
+        PrefsSettingsRepository.write(prefs.edit(), KpmSettings(source = smb)).apply()
+        assertEquals("smb", prefs.values["source.type"])
+        assertEquals(
+            setOf("source.type", "source.host", "source.port", "source.domain", "source.user", "source.share", "source.path"),
+            prefs.values.keys.filter { it.startsWith("source.") }.toSet(),
+        )
+        assertEquals(smb, PrefsSettingsRepository.read(prefs).source)
+    }
+
+    @Test
+    fun `an unknown source type reads as no source`() {
+        val prefs = oldPrefs()
+        prefs.values["source.type"] = "ftp"
+        assertNull(PrefsSettingsRepository.read(prefs).source)
+    }
+
+    @Test
+    fun `a file source without uri or name reads as no source`() {
+        val prefs = FakePrefs()
+        prefs.values["source.type"] = "file"
+        prefs.values["source.name"] = "db.kdbx"
+        assertNull(PrefsSettingsRepository.read(prefs).source)
+        prefs.values["source.uri"] = "content://x/document/1"
+        prefs.values.remove("source.name")
+        assertNull(PrefsSettingsRepository.read(prefs).source)
+    }
+
+    @Test
+    fun `last picked folder round trip and removal`() {
+        val folder = "content://com.android.externalstorage.documents/document/primary%3ASync"
+        val prefs = FakePrefs()
+        PrefsSettingsRepository.write(prefs.edit(), KpmSettings(lastPickedFolder = folder)).apply()
+        assertEquals(folder, prefs.values["picker.lastFolder"])
+        assertEquals(folder, PrefsSettingsRepository.read(prefs).lastPickedFolder)
+        PrefsSettingsRepository.write(prefs.edit(), KpmSettings(lastPickedFolder = null)).apply()
+        assertFalse(prefs.values.containsKey("picker.lastFolder"))
+        assertNull(PrefsSettingsRepository.read(prefs).lastPickedFolder)
+    }
+
+    @Test
+    fun `an SMB source never matches a file source`() {
+        val other: SourceConfig = file
+        assertFalse(smb.sameFileAs(other))
+        assertTrue(smb.sameFileAs(smb.copy(user = "someone")))
+    }
+}
+
+/** In-memory [SharedPreferences] for JVM tests: [values] is the file content. */
+internal class FakePrefs : SharedPreferences {
+    val values = LinkedHashMap<String, Any>()
+
+    override fun getAll(): MutableMap<String, *> = LinkedHashMap(values)
+
+    override fun getString(key: String, defValue: String?): String? = values[key] as? String ?: defValue
+
+    @Suppress("UNCHECKED_CAST")
+    override fun getStringSet(key: String, defValues: MutableSet<String>?): MutableSet<String>? =
+        (values[key] as? Set<String>)?.toMutableSet() ?: defValues
+
+    override fun getInt(key: String, defValue: Int): Int = values[key] as? Int ?: defValue
+
+    override fun getLong(key: String, defValue: Long): Long = values[key] as? Long ?: defValue
+
+    override fun getFloat(key: String, defValue: Float): Float = values[key] as? Float ?: defValue
+
+    override fun getBoolean(key: String, defValue: Boolean): Boolean = values[key] as? Boolean ?: defValue
+
+    override fun contains(key: String): Boolean = values.containsKey(key)
+
+    override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
+
+    override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
+
+    override fun edit(): SharedPreferences.Editor = object : SharedPreferences.Editor {
+        private val ops = ArrayList<() -> Unit>()
+
+        private fun op(block: () -> Unit): SharedPreferences.Editor = apply { ops += block }
+
+        override fun putString(key: String, value: String?) = op { if (value == null) values.remove(key) else values[key] = value }
+
+        override fun putStringSet(key: String, value: MutableSet<String>?) =
+            op { if (value == null) values.remove(key) else values[key] = value.toSet() }
+
+        override fun putInt(key: String, value: Int) = op { values[key] = value }
+
+        override fun putLong(key: String, value: Long) = op { values[key] = value }
+
+        override fun putFloat(key: String, value: Float) = op { values[key] = value }
+
+        override fun putBoolean(key: String, value: Boolean) = op { values[key] = value }
+
+        override fun remove(key: String) = op { values.remove(key) }
+
+        override fun clear() = op { values.clear() }
+
+        override fun commit(): Boolean {
+            apply()
+            return true
+        }
+
+        override fun apply() = ops.forEach { it() }
     }
 }

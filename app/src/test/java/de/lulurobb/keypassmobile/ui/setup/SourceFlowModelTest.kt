@@ -1,25 +1,35 @@
 package de.lulurobb.keypassmobile.ui.setup
 
 import de.lulurobb.keypassmobile.core.sync.SyncProblem
+import de.lulurobb.keypassmobile.platform.session.LockReason
 import de.lulurobb.keypassmobile.platform.session.ServerChange
 import de.lulurobb.keypassmobile.platform.session.SyncResult
+import de.lulurobb.keypassmobile.platform.settings.FileSource
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.settings.SourceConfig
+import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.platform.setup.BrowseError
 import de.lulurobb.keypassmobile.platform.setup.ChooseResult
 import de.lulurobb.keypassmobile.platform.setup.ConnectError as PlatformConnectError
 import de.lulurobb.keypassmobile.platform.setup.ConnectResult
 import de.lulurobb.keypassmobile.platform.setup.FolderResult
 import de.lulurobb.keypassmobile.platform.setup.KdbxFileEntry
+import de.lulurobb.keypassmobile.platform.setup.OlderVersion
 import de.lulurobb.keypassmobile.platform.setup.ServerAddress
 import de.lulurobb.keypassmobile.platform.setup.ServerInfo
 import de.lulurobb.keypassmobile.platform.setup.ShareEntry
 import de.lulurobb.keypassmobile.state.AppMessages
 import de.lulurobb.keypassmobile.state.FakeAppPlatform
 import de.lulurobb.keypassmobile.state.FakeSourceSetup
+import de.lulurobb.keypassmobile.state.SessionView
 import de.lulurobb.keypassmobile.state.TimeSource
+import de.lulurobb.keypassmobile.state.testSyncInfo
+import de.lulurobb.keypassmobile.state.testVault
+import de.lulurobb.keypassmobile.state.unlockedView
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.components.SetupStep
+import de.lulurobb.keypassmobile.ui.dialogs.OlderVersionInfo
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
@@ -51,7 +61,7 @@ class SourceFlowModelTest {
     private val server = ServerInfo(name = "reitano-nas", guid = serverGuid, dialect = "SMB 3.1.1", encrypted = true)
     private val docsShares = listOf(ShareEntry("Docs", "Dokumente"), ShareEntry("Fotos", ""))
 
-    private fun source(host: String = "nas.local", port: Int = 445, domain: String = "") = SourceConfig(
+    private fun source(host: String = "nas.local", port: Int = 445, domain: String = "") = SmbSource(
         host = host,
         port = port,
         domain = domain,
@@ -60,9 +70,17 @@ class SourceFlowModelTest {
         filePath = listOf("KeePass", "Db.kdbx"),
     )
 
-    private fun model(mode: SourceFlowMode = SourceFlowMode.FirstRun, source: SourceConfig? = null): SourceFlowModel {
+    /** [start] is the server form here: most tests are about the form; the choice has its own tests below. */
+    private fun model(
+        mode: SourceFlowMode = SourceFlowMode.FirstRun,
+        source: SmbSource? = null,
+        start: SourceFlowScreen = SourceFlowScreen.Server,
+        onPickFile: () -> Unit = {},
+    ): SourceFlowModel {
         platform.settingsFlow.value = KpmSettings(source = source)
-        return SourceFlowModel(platform, scope, time, messages, mode) { saved += it }
+        // The unlocked change flow only exists while the app is unlocked.
+        if (mode == SourceFlowMode.ChangeUnlocked) platform.sessionFlow.value = unlockedView(testVault(emptyList()))
+        return SourceFlowModel(platform, scope, time, messages, mode, start, onPickFile) { saved += it }
     }
 
     /** First-run model with a filled form and a typed password. */
@@ -80,7 +98,7 @@ class SourceFlowModelTest {
         return filled().also { it.onConnect() }
     }
 
-    private fun connectedChange(mode: SourceFlowMode, source: SourceConfig = source()): SourceFlowModel {
+    private fun connectedChange(mode: SourceFlowMode, source: SmbSource = source()): SourceFlowModel {
         setup.connectResults += ConnectResult.Connected(server, docsShares)
         val model = model(mode, source)
         model.readPassword = { "geheim".toCharArray() }
@@ -830,6 +848,306 @@ class SourceFlowModelTest {
         assertTrue(model.onBack())
         model.disconnect()
         assertFalse(setup.closed)
+    }
+
+    // ---- source choice ----
+
+    private val fileSource = FileSource(
+        uri = "content://docs/document/primary%3ASyncthing%2FPass.kdbx",
+        displayName = "Pass.kdbx",
+        place = "Interner Speicher / Syncthing",
+    )
+
+    private fun choiceModel(
+        mode: SourceFlowMode = SourceFlowMode.FirstRun,
+        source: SourceConfig? = null,
+        start: SourceFlowScreen = SourceFlowScreen.Choose,
+        onPickFile: () -> Unit = {},
+    ): SourceFlowModel {
+        platform.settingsFlow.value = KpmSettings(source = source)
+        if (mode == SourceFlowMode.ChangeUnlocked) platform.sessionFlow.value = unlockedView(testVault(emptyList()))
+        return SourceFlowModel(platform, scope, time, messages, mode, start, onPickFile) { saved += it }
+    }
+
+    @Test
+    fun `a flow starts on the choice by default and keeps the form empty`() {
+        val model = choiceModel()
+        assertEquals(SourceFlowScreen.Choose, model.screen.value)
+        assertEquals(ServerFormState(), model.form.value)
+        assertNull(model.manageKind)
+    }
+
+    @Test
+    fun `the manage rows depend on the kind of the current source`() {
+        assertEquals(SourceKind.SMB, choiceModel(SourceFlowMode.ChangeUnlocked, source()).manageKind)
+        assertEquals(SourceKind.FILE, choiceModel(SourceFlowMode.ChangeUnlocked, fileSource).manageKind)
+        assertEquals(SourceKind.FILE, choiceModel(SourceFlowMode.ChangeLocked, fileSource).manageKind)
+        // The first run shows the two option cards, also when the first-run file is saved and the user went back.
+        assertNull(choiceModel(SourceFlowMode.FirstRun, fileSource).manageKind)
+    }
+
+    @Test
+    fun `the choice opens the server form or the picker`() {
+        var picks = 0
+        val model = choiceModel(onPickFile = { picks++ })
+        model.onChooseFile()
+        assertEquals(1, picks)
+        assertEquals(SourceFlowScreen.Choose, model.screen.value)
+        model.onChooseSmb()
+        assertEquals(SourceFlowScreen.Server, model.screen.value)
+        // Not on the choice any more: no second picker.
+        model.onChooseFile()
+        assertEquals(1, picks)
+    }
+
+    @Test
+    fun `the server form of a change is filled from an SMB source and empty for a file source`() {
+        val filled = choiceModel(SourceFlowMode.ChangeUnlocked, source())
+        filled.onChooseSmb()
+        assertEquals("nas.local", filled.form.value.host)
+        assertEquals("luca", filled.form.value.user)
+        // DS-03: the password is never prefilled.
+        assertEquals(0, filled.password.length)
+
+        val empty = choiceModel(SourceFlowMode.ChangeUnlocked, fileSource)
+        empty.onChooseSmb()
+        assertEquals(ServerFormState(step = null), empty.form.value)
+    }
+
+    @Test
+    fun `back goes from the form to the choice and from the choice to the caller`() {
+        val model = choiceModel(SourceFlowMode.ChangeUnlocked, source())
+        model.onChooseSmb()
+        assertTrue(model.onBack())
+        assertEquals(SourceFlowScreen.Choose, model.screen.value)
+        assertFalse(model.onBack())
+        assertEquals(SourceFlowScreen.Choose, model.screen.value)
+    }
+
+    @Test
+    fun `back through the browser of the first run ends on the choice`() {
+        val model = choiceModel()
+        model.onChooseSmb()
+        fill(model, "geheim")
+        setup.connectResults += ConnectResult.Connected(server, docsShares)
+        model.onConnect()
+        assertEquals(SourceFlowScreen.Browse, model.screen.value)
+        assertTrue(model.onBack())
+        assertEquals(SourceFlowScreen.Server, model.screen.value)
+        assertTrue(model.onBack())
+        assertEquals(SourceFlowScreen.Choose, model.screen.value)
+        assertFalse(model.onBack())
+    }
+
+    @Test
+    fun `a flow that starts on the form leaves instead of going to the choice`() {
+        val model = choiceModel(SourceFlowMode.ChangeUnlocked, source(), start = SourceFlowScreen.Server)
+        assertEquals(SourceFlowScreen.Server, model.screen.value)
+        assertEquals("nas.local", model.form.value.host)
+        assertFalse(model.onBack())
+        assertEquals(SourceFlowScreen.Server, model.screen.value)
+    }
+
+    @Test
+    fun `reopen goes back to the choice for a file source, else to the browser or the form`() {
+        // A saved first-run file: the flow shows nothing, back from step 3 shows the choice.
+        val fileModel = choiceModel(SourceFlowMode.FirstRun, fileSource)
+        fileModel.onFileSaved()
+        assertNull(fileModel.screen.value)
+        fileModel.reopen()
+        assertEquals(SourceFlowScreen.Choose, fileModel.screen.value)
+
+        // SMB with the connection still open: the browser.
+        val smb = choiceModel()
+        smb.onChooseSmb()
+        fill(smb, "geheim")
+        setup.connectResults += ConnectResult.Connected(server, docsShares)
+        smb.onConnect()
+        platform.settingsFlow.value = KpmSettings(source = source())
+        smb.reopen()
+        assertEquals(SourceFlowScreen.Browse, smb.screen.value)
+
+        // SMB without a connection (closed by the stop): the form.
+        val gone = choiceModel(source = source())
+        gone.onChooseSmb()
+        gone.reopen()
+        assertEquals(SourceFlowScreen.Server, gone.screen.value)
+    }
+
+    @Test
+    fun `a saved first-run file closes the connection of an earlier SMB attempt`() {
+        val model = connectedFirstRun()
+        assertFalse(setup.closed)
+        model.onFileSaved()
+        assertNull(model.screen.value)
+        assertNull(model.browse.value)
+        assertTrue(setup.closed)
+    }
+
+    // ---- SMB older version (DS-14) ----
+
+    private val older = OlderVersion(
+        fileName = "Db.kdbx",
+        fileModified = Instant.parse("2025-09-12T18:05:00Z"),
+        openModified = Instant.parse("2026-02-28T21:38:00Z"),
+    )
+
+    @Test
+    fun `an older SMB file asks first and Trotzdem verwenden saves it`() {
+        setup.folderResults += listed(files = listOf(kdbx("Db.kdbx")))
+        val model = connectedChange(SourceFlowMode.ChangeUnlocked)
+        setup.olderResults += older
+
+        model.onUseFile()
+
+        assertEquals(listOf(FakeSourceSetup.OlderCall("Docs", listOf("KeePass", "Db.kdbx"))), setup.olderCalls)
+        assertTrue(setup.chooseCalls.isEmpty())
+        assertEquals(
+            OlderVersionInfo(
+                fileName = "Db.kdbx",
+                fileModified = LocalDateTime.of(2025, 9, 12, 18, 5),
+                openModified = LocalDateTime.of(2026, 2, 28, 21, 38),
+            ),
+            model.olderDialog.value,
+        )
+        assertFalse(assertNotNullState(model).saving)
+
+        model.onOlderUseAnyway()
+
+        assertNull(model.olderDialog.value)
+        assertEquals(listOf(FakeSourceSetup.ChooseCall("Docs", listOf("KeePass", "Db.kdbx"))), setup.chooseCalls)
+        assertEquals(UiMessage.SourceSaved, messages.message.value)
+        assertEquals(1, saved.size)
+    }
+
+    @Test
+    fun `D10 a lock while the SMB older version check runs saves nothing and shows nothing`() {
+        setup.folderResults += listed(files = listOf(kdbx("Db.kdbx")))
+        val model = connectedChange(SourceFlowMode.ChangeUnlocked)
+        // The check finds nothing because the app is locked by then (it returns null when locked).
+        setup.olderGate = CompletableDeferred()
+        model.onUseFile()
+        platform.sessionFlow.value = SessionView.Locked(LockReason.User)
+        setup.olderGate!!.complete(Unit)
+
+        assertTrue(setup.chooseCalls.isEmpty(), "never reaches the commit")
+        assertNull(model.olderDialog.value)
+        assertNull(messages.message.value)
+        assertTrue(saved.isEmpty())
+        assertFalse(assertNotNullState(model).saving)
+    }
+
+    @Test
+    fun `D10 a discarded SMB switch posts nothing and does not report saved`() {
+        setup.folderResults += listed(files = listOf(kdbx("Db.kdbx")))
+        val model = connectedChange(SourceFlowMode.ChangeUnlocked)
+        setup.chooseResults += ChooseResult.Discarded
+
+        model.onUseFile()
+
+        assertEquals(1, setup.chooseCalls.size)
+        assertNull(messages.message.value)
+        assertTrue(saved.isEmpty())
+        assertFalse(assertNotNullState(model).saving)
+    }
+
+    @Test
+    fun `a locked SMB change is not discarded by the lock check`() {
+        setup.folderResults += listed(files = listOf(kdbx("Db.kdbx")))
+        val model = connectedChange(SourceFlowMode.ChangeLocked)
+
+        model.onUseFile()
+
+        assertEquals(1, setup.chooseCalls.size)
+        assertEquals(UiMessage.SourceSaved, messages.message.value)
+        assertEquals(1, saved.size)
+    }
+
+    @Test
+    fun `Abbrechen of the older dialog saves nothing and stays in the browser`() {
+        setup.folderResults += listed(files = listOf(kdbx("Db.kdbx")))
+        val model = connectedChange(SourceFlowMode.ChangeUnlocked)
+        setup.olderResults += older
+        model.onUseFile()
+
+        model.onOlderCancel()
+
+        assertNull(model.olderDialog.value)
+        assertTrue(setup.chooseCalls.isEmpty())
+        assertTrue(saved.isEmpty())
+        assertNull(messages.message.value)
+        assertEquals(SourceFlowScreen.Browse, model.screen.value)
+        // Using the file again asks again.
+        setup.olderResults += older
+        model.onUseFile()
+        assertEquals(2, setup.olderCalls.size)
+        assertTrue(model.olderDialog.value != null)
+    }
+
+    @Test
+    fun `a newer or other file shows no dialog and the first run and the locked change never ask`() {
+        setup.folderResults += listed(files = listOf(kdbx("Db.kdbx")))
+        val unlocked = connectedChange(SourceFlowMode.ChangeUnlocked)
+        unlocked.onUseFile()
+        assertEquals(1, setup.olderCalls.size)
+        assertNull(unlocked.olderDialog.value)
+        assertEquals(1, setup.chooseCalls.size)
+
+        setup.olderCalls.clear()
+        setup.chooseCalls.clear()
+        val locked = connectedChange(SourceFlowMode.ChangeLocked)
+        locked.onUseFile()
+        val firstRun = connectedFirstRun()
+        firstRun.onSelectFile(listOf("Docs", "Db.kdbx"))
+        firstRun.onUseFile()
+        assertTrue(setup.olderCalls.isEmpty())
+        assertEquals(2, setup.chooseCalls.size)
+    }
+
+    @Test
+    fun `the older check is busy like a save and ignores a second tap`() {
+        val gate = CompletableDeferred<Unit>()
+        setup.folderResults += listed(files = listOf(kdbx("Db.kdbx")))
+        val model = connectedChange(SourceFlowMode.ChangeUnlocked)
+        setup.olderGate = gate
+        model.onUseFile()
+        model.onUseFile()
+        assertTrue(assertNotNullState(model).saving)
+        assertEquals(1, setup.olderCalls.size)
+        gate.complete(Unit)
+        assertFalse(assertNotNullState(model).saving)
+    }
+
+    // ---- DS-13: the lock notice is the only message ----
+
+    @Test
+    fun `a change that locked the app posts no source saved`() {
+        setup.folderResults += listed(files = listOf(kdbx("Db.kdbx")))
+        val model = connectedChange(SourceFlowMode.ChangeUnlocked)
+        setup.chooseResults += ChooseResult.Saved(
+            fileSizeBytes = 10,
+            fileChanged = true,
+            sync = SyncResult.CandidateReady,
+            lockedForNewDatabase = true,
+        )
+
+        model.onUseFile()
+
+        assertNull(messages.message.value)
+        assertEquals(listOf<Long?>(10), saved)
+    }
+
+    // ---- NOT_FOUND: no preselection ----
+
+    @Test
+    fun `a file that is gone from the share is not preselected`() {
+        platform.syncFlow.value = testSyncInfo(lastProblem = SyncProblem.NOT_FOUND)
+        setup.folderResults += listed(files = listOf(kdbx("Db.kdbx")))
+        val model = connectedChange(SourceFlowMode.ChangeUnlocked)
+        val browse = assertNotNullState(model)
+        // Still starts in the folder of the file, but without the file picked.
+        assertEquals(listOf("Docs", "KeePass"), browse.path)
+        assertNull(browse.selected)
     }
 
     private fun assertNotNullState(model: SourceFlowModel): BrowseState =

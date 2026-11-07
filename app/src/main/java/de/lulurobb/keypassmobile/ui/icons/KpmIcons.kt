@@ -35,6 +35,12 @@ object KpmIcons {
     @DrawableRes val VisibilityOff = R.drawable.ic_visibility_off
     @DrawableRes val Key = R.drawable.ic_key
     @DrawableRes val Server = R.drawable.ic_dns
+
+    /** A file on the phone as source (document with text lines). */
+    @DrawableRes val File = R.drawable.ic_description
+
+    /** "Quelle verwalten" row (sliders). */
+    @DrawableRes val Tune = R.drawable.ic_tune
     @DrawableRes val ChevronRight = R.drawable.ic_chevron_right
     @DrawableRes val Folder = R.drawable.ic_folder
     @DrawableRes val FolderShared = R.drawable.ic_folder_shared

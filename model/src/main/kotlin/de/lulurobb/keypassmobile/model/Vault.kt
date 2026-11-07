@@ -16,6 +16,8 @@ class Vault(
     /** Own icons stored in the KDBX (usually PNG bytes), keyed by icon UUID. */
     val customIcons: Map<UUID, ByteArray>,
     private val secrets: VaultSecrets,
+    /** UUID of the root group as stored in the KDBX. Identifies the database across versions (DS-14). */
+    val rootGroupUuid: UUID? = null,
 ) {
     /**
      * Returns a fresh copy of the entry password. The caller overwrites the

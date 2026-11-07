@@ -20,7 +20,10 @@ import de.lulurobb.keypassmobile.ui.icons.KpmIcon
 /** Position in the first-run setup ("Schritt 2 von 4"). */
 data class SetupStep(val number: Int, val total: Int = SETUP_STEPS) {
     companion object {
-        /** Server, file, master password, system settings. */
+        /**
+         * Quelle (choice and server form, or the file picked on the phone), Datei (the file on the
+         * server; skipped for a file on the phone), Master-Passwort, System.
+         */
         const val SETUP_STEPS = 4
     }
 }

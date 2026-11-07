@@ -1,12 +1,22 @@
 package de.lulurobb.keypassmobile.kdbx
 
+import app.keemobile.kotpass.cryptography.EncryptedValue
+import app.keemobile.kotpass.cryptography.format.BaseCiphers
+import app.keemobile.kotpass.database.Credentials
+import app.keemobile.kotpass.database.KeePassDatabase
+import app.keemobile.kotpass.database.encode
+import app.keemobile.kotpass.database.header.KdfParameters
+import app.keemobile.kotpass.models.Meta
 import de.lulurobb.keypassmobile.kdbx.KdbxOpenException.Reason
 import de.lulurobb.keypassmobile.model.Vault
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
+import okio.ByteString.Companion.toByteString
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.security.SecureRandom
 import java.security.MessageDigest
 import java.util.UUID
 import kotlin.test.Test
@@ -277,6 +287,50 @@ class KdbxReaderTest {
         assertFalse(looksLikeKdbx(write("keepass1.kdb", valid.copyOf().also { it[4] = 0x65 })))
         assertFalse(looksLikeKdbx(File(tempDir, "fehlt.kdbx")))
         assertFalse(looksLikeKdbx(tempDir))
+    }
+
+    /** Encodes a small KDBX 4.0 database (fast Argon2 settings) with a known root group UUID. */
+    private fun encodeWithRootUuid(rootUuid: UUID): ByteArray {
+        val credentials = Credentials.from(EncryptedValue.fromString(TestDbs.PASSWORD))
+        val base = KeePassDatabase.Ver4x.create("Root", Meta(generator = "kpm-test"), credentials, SecureRandom())
+        val kdf = KdfParameters.Argon2.default(ByteArray(32).also { SecureRandom().nextBytes(it) }.toByteString()).copy(
+            iterations = 1u,
+            memory = 64uL * 1024u,
+            parallelism = 1u,
+        )
+        val database = base.copy(
+            header = base.header.copy(kdfParameters = kdf),
+            content = base.content.copy(group = base.content.group.copy(uuid = rootUuid)),
+        )
+        return ByteArrayOutputStream().also { database.encode(it, cipherProviders = BaseCiphers.entries) }.toByteArray()
+    }
+
+    @Test
+    fun `root group uuid is the uuid stored in the file`() {
+        val uuid = UUID.fromString("5a1c0de0-1234-4abc-8def-0123456789ab")
+        val vault = reader.open(write("root-uuid.kdbx", encodeWithRootUuid(uuid)), TestDbs.hash())
+        assertEquals(uuid, vault.rootGroupUuid)
+        vault.close()
+        val other = UUID.fromString("5a1c0de0-1234-4abc-8def-0123456789ac")
+        val second = reader.open(write("root-uuid2.kdbx", encodeWithRootUuid(other)), TestDbs.hash())
+        assertEquals(other, second.rootGroupUuid)
+        second.close()
+        val fromKeePassXc = open(TestDbs.STRUCTURE)
+        assertNotNull(fromKeePassXc.rootGroupUuid)
+        fromKeePassXc.close()
+    }
+
+    @Test
+    fun `isKdbxSignature accepts KDBX 3_1 and 4_x and rejects the rest`() {
+        assertTrue(isKdbxSignature(TestDbs.bytes(TestDbs.CLI_DEFAULT)), "3.1")
+        assertTrue(isKdbxSignature(TestDbs.bytes(TestDbs.ARGON2ID_AES)), "4.x")
+        assertTrue(isKdbxSignature(TestDbs.bytes(TestDbs.KDBX41_FEATURES)), "4.1")
+        val valid = TestDbs.bytes(TestDbs.ARGON2D_AES)
+        assertTrue(isKdbxSignature(valid.copyOf(12)), "only the first 12 bytes")
+        assertFalse(isKdbxSignature(valid.copyOf(11)), "too short")
+        assertFalse(isKdbxSignature(ByteArray(0)))
+        assertFalse(isKdbxSignature("Das ist eine Textdatei, keine Datenbank.".toByteArray()))
+        assertFalse(isKdbxSignature(valid.copyOf().also { it[4] = 0x65 }), "KDB (KeePass 1)")
     }
 
     @Test

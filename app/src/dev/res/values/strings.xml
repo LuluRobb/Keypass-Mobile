@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dev build type only: the app is called "KeyPass Dev", so it can be told apart from the
+     release app on the same phone. Overrides every string of :app, :autofill and :platform
+     that shows the app name. Keep in sync with the originals when one of those texts changes. -->
+<resources>
+    <string name="app_name" translatable="false">KeyPass Dev</string>
+
+    <!-- :app -->
+    <string name="setup_choose_lead">KeyPass Dev liest die KDBX-Datei nur und behält eine verschlüsselte Kopie für unterwegs.</string>
+    <string name="system_autofill_text">Wähl KeyPass Dev als Autofill-Dienst. Dann erscheint der Vorschlag „KeyPass Dev“ in der Tastatur, sobald du in einem Anmeldefeld bist.</string>
+    <string name="system_autofill_done">KeyPass Dev ist der Autofill-Dienst.</string>
+    <string name="system_notifications_text">Solange die App entsperrt ist, zeigt sie „KeyPass Dev entsperrt“ mit dem Button „Sperren“. So siehst du immer, ob sie offen ist.</string>
+    <string name="settings_autofill_on">KeyPass Dev ist ausgewählt.</string>
+    <string name="settings_footer">KeyPass Dev %1$s</string>
+    <string name="picker_not_set_up">KeyPass Dev ist noch nicht eingerichtet.</string>
+
+    <!-- :autofill -->
+    <string name="kpm_autofill_service_label" translatable="false">KeyPass Dev</string>
+    <string name="kpm_autofill_suggestion_title" translatable="false">KeyPass Dev</string>
+    <string name="kpm_autofill_suggestion_description">KeyPass Dev: Eintrag auswählen</string>
+
+    <!-- :platform -->
+    <string name="platform_notification_channel_description">Zeigt an, solange KeyPass Dev entsperrt ist.</string>
+    <string name="platform_notification_title">KeyPass Dev entsperrt</string>
+    <string name="platform_biometric_title">KeyPass Dev entsperren</string>
+    <string name="platform_clip_label">KeyPass Dev</string>
+</resources>

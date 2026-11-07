@@ -33,24 +33,37 @@ import de.lulurobb.keypassmobile.platform.session.SyncInfo
 import de.lulurobb.keypassmobile.platform.session.SyncReport
 import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.session.SyncTrigger
+import de.lulurobb.keypassmobile.platform.session.runStartupWork
 import de.lulurobb.keypassmobile.platform.session.UnlockOffer
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
+import de.lulurobb.keypassmobile.platform.settings.FileSource
 import de.lulurobb.keypassmobile.platform.settings.PrefsSettingsRepository
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.settings.TrustedServer
+import de.lulurobb.keypassmobile.platform.saf.ContentResolverDocuments
+import de.lulurobb.keypassmobile.platform.saf.SafRemoteSource
+import de.lulurobb.keypassmobile.platform.setup.DocumentSourceCleanup
+import de.lulurobb.keypassmobile.platform.setup.FileSourceSetup
+import de.lulurobb.keypassmobile.platform.setup.SafFileSourceSetup
 import de.lulurobb.keypassmobile.platform.setup.SourceSetup
 import de.lulurobb.keypassmobile.platform.setup.forSetup
 import de.lulurobb.keypassmobile.platform.smb.ServerGuidListener
 import de.lulurobb.keypassmobile.platform.smb.SmbRemoteSource
 import de.lulurobb.keypassmobile.platform.smb.smbPath
 import de.lulurobb.keypassmobile.platform.sync.SyncScheduler
+import de.lulurobb.keypassmobile.platform.sync.needsNetwork
 import de.lulurobb.keypassmobile.smb.SmbConnector
 import de.lulurobb.keypassmobile.smb.SmbServer
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -84,6 +97,7 @@ class KpmPlatform private constructor(context: Context) {
     private val settingsRepository = PrefsSettingsRepository(app)
     private val hashStore = KeystoreHashStore(File(keyDir, "fingerprint-hash.bin"), strongBox)
     private val smbPasswords = SmbPasswordStore(File(keyDir, "smb-password.bin"), strongBox)
+    private val documents = ContentResolverDocuments(app, app.getString(R.string.platform_internal_storage))
     private val connector = SmbConnector()
     private val engine = SyncEngine(File(app.noBackupFilesDir, "sync"), KdbxVaultOpener(NativeArgon2Engine()), clock)
     private val clipboard = SensitiveClipboard(app)
@@ -110,7 +124,11 @@ class KpmPlatform private constructor(context: Context) {
 
     private val remotes = RemoteFactory {
         val s = settingsRepository.settings.value
-        val source = s.source ?: return@RemoteFactory null
+        val source = when (val configured = s.source) {
+            is FileSource -> return@RemoteFactory SafRemoteSource(documents, configured.uri)
+            is SmbSource -> configured
+            null -> return@RemoteFactory null
+        }
         val server = try {
             SmbServer(source.host, source.port, source.domain, source.user)
         } catch (_: IllegalArgumentException) {
@@ -134,6 +152,11 @@ class KpmPlatform private constructor(context: Context) {
         }
     }
 
+    private val sourceCleanup = DocumentSourceCleanup(documents, settingsRepository, smbPasswords)
+
+    /** Completed when the cleanup of permissions at the start is over; a file pick waits for it (see runStartupWork). */
+    private val startupCleanupDone = CompletableDeferred<Unit>()
+
     private val core: Session = Session(
         engine = engine,
         hashStore = hashStore,
@@ -148,6 +171,7 @@ class KpmPlatform private constructor(context: Context) {
         preload = Domains::preload,
         journal = FileSwitchJournal(File(keyDir, "source-switch.properties")),
         clearSmbPassword = smbPasswords::clear,
+        sourceCleanup = sourceCleanup,
     )
 
     // ---- observable state ----
@@ -362,8 +386,8 @@ class KpmPlatform private constructor(context: Context) {
 
     /** End of the first-run setup: remembers it and schedules the background sync (SY-06). */
     fun completeSetup() {
-        settingsRepository.update { it.copy(setupCompleted = true) }
-        SyncScheduler.schedule(app)
+        val s = settingsRepository.update { it.copy(setupCompleted = true) }
+        SyncScheduler.schedule(app, requiresNetwork(s))
     }
 
     // ---- setup ----
@@ -371,11 +395,27 @@ class KpmPlatform private constructor(context: Context) {
     /** Starts the setup or a source change (DS-02). Close the returned object when leaving the flow. */
     fun startSourceSetup(): SourceSetup = SourceSetup(connector.forSetup(), settingsRepository, smbPasswords, core, clock, io)
 
+    /** Starts the setup or a source change with a file on the phone (DS-08). Close the returned object when leaving the flow. */
+    fun startFileSetup(): FileSourceSetup = SafFileSourceSetup(documents, settingsRepository, core, io, startupDone = startupCleanupDone)
+
+    /** SMB needs a network connection for the background sync, a file on the phone does not (SY-06). */
+    private fun requiresNetwork(s: KpmSettings): Boolean = needsNetwork(s.source)
+
     private fun start() {
-        // Finishes undoing a source change that a process death interrupted; unlocks wait for it.
-        scope.launch { core.recoverInterruptedSwitch() }
+        scope.launch {
+            // Recovery of an interrupted source change, cleanup of lost grants, sync of a file source.
+            runStartupWork(core, sourceCleanup, settingsRepository, io, startupCleanupDone)
+        }
         UnlockedNotification.ensureChannel(app)
-        if (settings.value.setupCompleted) SyncScheduler.schedule(app)
+        if (settings.value.setupCompleted) SyncScheduler.schedule(app, requiresNetwork(settings.value))
+        // The source type changes in the settings: the job takes over the matching network constraint.
+        scope.launch {
+            settingsRepository.settings
+                .map { it.setupCompleted to it.source?.kind }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { (completed, _) -> if (completed) SyncScheduler.schedule(app, requiresNetwork(settings.value)) }
+        }
     }
 
     companion object {

@@ -1,5 +1,7 @@
 package de.lulurobb.keypassmobile.platform.session
 
+import de.lulurobb.keypassmobile.platform.settings.FileSource
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import de.lulurobb.keypassmobile.platform.settings.SourceConfig
 import java.io.File
 import java.io.FileOutputStream
@@ -55,13 +57,11 @@ internal class FileSwitchJournal(private val file: File) : SwitchJournal {
         } catch (_: Exception) {
             return conservative
         }
-        val target = run {
-            val host = p.getProperty("host") ?: return@run null
-            val user = p.getProperty("user") ?: return@run null
-            val share = p.getProperty("share") ?: return@run null
-            val path = p.getProperty("path")?.split('/')?.filter { it.isNotEmpty() }
-            if (path.isNullOrEmpty()) return@run null
-            SourceConfig(host, p.getProperty("port")?.toIntOrNull() ?: 445, p.getProperty("domain") ?: "", user, share, path)
+        // A record without a type was written before the file source existed: SMB. An unknown type reads as no target.
+        val target = when (p.getProperty("type")) {
+            null, "smb" -> readSmbTarget(p)
+            "file" -> readFileTarget(p)
+            else -> null
         }
         return SwitchRecord(
             target = target,
@@ -72,6 +72,21 @@ internal class FileSwitchJournal(private val file: File) : SwitchJournal {
         )
     }
 
+    private fun readSmbTarget(p: Properties): SmbSource? {
+        val host = p.getProperty("host") ?: return null
+        val user = p.getProperty("user") ?: return null
+        val share = p.getProperty("share") ?: return null
+        val path = p.getProperty("path")?.split('/')?.filter { it.isNotEmpty() }
+        if (path.isNullOrEmpty()) return null
+        return SmbSource(host, p.getProperty("port")?.toIntOrNull() ?: 445, p.getProperty("domain") ?: "", user, share, path)
+    }
+
+    private fun readFileTarget(p: Properties): FileSource? {
+        val uri = p.getProperty("uri")?.takeIf { it.isNotEmpty() } ?: return null
+        val name = p.getProperty("name")?.takeIf { it.isNotEmpty() } ?: return null
+        return FileSource(uri, name, p.getProperty("place"))
+    }
+
     override fun write(record: SwitchRecord?) {
         if (record == null) {
             Files.deleteIfExists(file.toPath())
@@ -79,13 +94,23 @@ internal class FileSwitchJournal(private val file: File) : SwitchJournal {
         }
         file.parentFile?.mkdirs()
         val p = Properties()
-        record.target?.let {
-            p.setProperty("host", it.host)
-            p.setProperty("port", it.port.toString())
-            p.setProperty("domain", it.domain)
-            p.setProperty("user", it.user)
-            p.setProperty("share", it.share)
-            p.setProperty("path", it.filePath.joinToString("/"))
+        when (val t = record.target) {
+            null -> Unit
+            is SmbSource -> {
+                p.setProperty("type", "smb")
+                p.setProperty("host", t.host)
+                p.setProperty("port", t.port.toString())
+                p.setProperty("domain", t.domain)
+                p.setProperty("user", t.user)
+                p.setProperty("share", t.share)
+                p.setProperty("path", t.filePath.joinToString("/"))
+            }
+            is FileSource -> {
+                p.setProperty("type", "file")
+                p.setProperty("uri", t.uri)
+                p.setProperty("name", t.displayName)
+                t.place?.let { p.setProperty("place", it) }
+            }
         }
         p.setProperty("differs", record.differs.toString())
         p.setProperty("setAside", record.setAside.toString())

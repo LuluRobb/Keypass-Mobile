@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dev build type only: green instead of petrol, so the icon differs at a glance from the
+     release app. Same structure (dark top left, light bottom right), see design/logo/README.md. -->
+<resources>
+    <color name="ic_launcher_gradient_start">#FF1B4D2E</color>
+    <color name="ic_launcher_gradient_end">#FF4A9A3F</color>
+</resources>

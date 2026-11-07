@@ -2,6 +2,7 @@ package de.lulurobb.keypassmobile.core.sync
 
 import de.lulurobb.keypassmobile.model.Vault
 import java.time.Instant
+import java.util.UUID
 
 /** Where the password hash for an unlock came from. */
 enum class KeySource {
@@ -147,4 +148,27 @@ data class SyncStatus(
     val lastProblem: SyncProblem?,
     val lastProblemAt: Instant?,
     val candidate: CandidateState,
+    /**
+     * Remote modification time of the file the next unlock opens: a pending
+     * candidate, otherwise the offline copy, otherwise any candidate. Null when
+     * unknown ([RemoteStat.UNKNOWN_MODIFIED] counts as unknown) (EN-07).
+     */
+    val localModified: Instant? = null,
+    /**
+     * Remote modification time of the version opened by the last unlock or
+     * refresh in this process; null before the first unlock or when unknown (DS-14).
+     */
+    val openedModified: Instant? = null,
 )
+
+/** Result of [SyncEngine.probeOpen]. */
+sealed interface ProbeResult {
+    /** The file opened with the key. [rootGroupUuid] identifies the database; null if the vault has none. */
+    class Opened(val stat: RemoteStat, val rootGroupUuid: UUID?) : ProbeResult
+
+    /** The file is a database but the key does not open it. */
+    data object WrongKey : ProbeResult
+
+    /** Stat, download or open failed ([SyncProblem.INVALID_FILE] for a damaged file). Nothing is recorded. */
+    data class Failed(val problem: SyncProblem) : ProbeResult
+}

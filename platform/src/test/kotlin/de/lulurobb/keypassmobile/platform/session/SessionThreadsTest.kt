@@ -7,7 +7,7 @@ import de.lulurobb.keypassmobile.core.sync.RemoteSource
 import de.lulurobb.keypassmobile.core.sync.SyncEngine
 import de.lulurobb.keypassmobile.core.sync.UnlockResult
 import de.lulurobb.keypassmobile.platform.settings.MemorySettingsRepository
-import de.lulurobb.keypassmobile.platform.settings.SourceConfig
+import de.lulurobb.keypassmobile.platform.settings.SmbSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,7 +35,7 @@ class SessionThreadsTest {
     private val t0: Instant = Instant.parse("2026-11-01T10:00:00Z")
 
     private class NoSwitch(override val remote: RemoteSource) : SourceSwitch {
-        override val target = SourceConfig("nas", 445, "", "kpm", "daten", listOf("new.kdbx"))
+        override val target = SmbSource("nas", 445, "", "kpm", "daten", listOf("new.kdbx"))
         override val differs = true
 
         override fun stage() = Unit
@@ -84,7 +84,7 @@ class SessionThreadsTest {
                 assertEquals(SessionState.Unlocking, session.state.value)
 
                 val newRemote = FakeRemote(kdbx("new", "other"), t0.minus(Duration.ofDays(2)))
-                assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady), session.switchSource(NoSwitch(newRemote)))
+                assertEquals(SourceSwitchResult.Saved(SyncResult.CandidateReady, locked = true), session.switchSource(NoSwitch(newRemote)))
                 // The old file must not appear after the source changed.
                 assertEquals(LockReason.SourceChanged, assertIs<SessionState.Locked>(session.state.value).reason)
 
