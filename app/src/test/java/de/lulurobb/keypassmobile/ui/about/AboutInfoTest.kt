@@ -11,7 +11,7 @@ class AboutInfoTest {
     private val sha = "0123456789abcdef0123456789abcdef01234567"
 
     private fun info(commit: String? = sha, buildTime: Instant? = Instant.parse("2026-11-07T12:30:00Z")) = AboutInfo(
-        versionName = "0.3.0.7",
+        versionName = "0.3.0",
         versionCode = 7,
         variant = BuildVariant.Release,
         packageName = "de.lulurobb.keypassmobile",
@@ -109,9 +109,9 @@ class AboutInfoTest {
     fun `the summary has the title and one line per fact`() {
         val text = aboutSummary(
             "KeyPass Mobile",
-            listOf("Version" to "0.3.0.7", "Build-Nummer" to "7", "Commit" to "0123456"),
+            listOf("Version" to "0.3.0", "Build-Nummer" to "7", "Commit" to "0123456"),
         )
-        assertEquals("KeyPass Mobile\nVersion: 0.3.0.7\nBuild-Nummer: 7\nCommit: 0123456", text)
+        assertEquals("KeyPass Mobile\nVersion: 0.3.0\nBuild-Nummer: 7\nCommit: 0123456", text)
     }
 
     @Test

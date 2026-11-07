@@ -39,7 +39,7 @@ class AboutScreenTest {
     private val built = Instant.parse("2026-11-07T12:30:00Z")
 
     private val release = AboutInfo(
-        versionName = "0.3.0.7",
+        versionName = "0.3.0",
         versionCode = 7,
         variant = BuildVariant.Release,
         packageName = "de.lulurobb.keypassmobile",
@@ -85,7 +85,7 @@ class AboutScreenTest {
         for (heading in listOf("App", "Projekt", "Gerät")) show(heading)
         // Label and value sit in one node: TalkBack reads them together.
         for ((label, value) in listOf(
-            "Version" to "0.3.0.7",
+            "Version" to "0.3.0",
             "Build-Nummer" to "7",
             "Variante" to "Release",
             "Paketname" to "de.lulurobb.keypassmobile",
@@ -102,7 +102,7 @@ class AboutScreenTest {
     @Test
     fun readOnlyRowsCannotBeClicked() {
         about(release)
-        rule.onNode(hasText("Version") and hasText("0.3.0.7")).assertHasNoClickAction()
+        rule.onNode(hasText("Version") and hasText("0.3.0")).assertHasNoClickAction()
         rule.onNode(hasText("Ersteller")).performScrollTo().assertHasNoClickAction()
         rule.onNode(hasText("Modell")).performScrollTo().assertHasNoClickAction()
     }
@@ -158,7 +158,7 @@ class AboutScreenTest {
             listOf(
                 listOf(
                     "KeyPass Mobile",
-                    "Version: 0.3.0.7",
+                    "Version: 0.3.0",
                     "Build-Nummer: 7",
                     "Variante: Release",
                     "Paketname: de.lulurobb.keypassmobile",
@@ -210,7 +210,7 @@ class AboutScreenTest {
         val clip = context.getSystemService(ClipboardManager::class.java).primaryClip
         assertNotNull(clip)
         val text = clip!!.getItemAt(0).text.toString()
-        assertTrue(text, text.startsWith("KeyPass Mobile\nVersion: 0.3.0.7\n"))
+        assertTrue(text, text.startsWith("KeyPass Mobile\nVersion: 0.3.0\n"))
         assertTrue(text, text.contains("Commit: 9f3c2a1\n"))
         // Nothing secret in it: no sensitive flag, unlike a copied password.
         val extras = clip.description.extras

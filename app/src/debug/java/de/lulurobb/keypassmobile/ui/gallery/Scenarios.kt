@@ -566,7 +566,7 @@ private fun SettingsDemo(
                 autoLockSeconds = 120,
                 autofillSelected = true,
                 notificationsAllowed = !offline,
-                versionName = "0.3.0.7",
+                versionName = "0.3.0",
             ),
         )
     }
