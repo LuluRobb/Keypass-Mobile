@@ -1,6 +1,6 @@
 # MVP - Zwischenstand vom 07.11.2026
 
-Grundlage sind `ANFORDERUNGEN.md` und der UI-Entwurf (Link in Abschnitt 13). Alle Module sind fertig, `:app` ist vollständig verdrahtet. Der Ende-zu-Ende-Test im Emulator gegen Samba in Docker ist durchgeführt, die dabei gefundenen Fehler sind behoben. Geprüft wurden Einrichtung, Liste, Detail und Kopieren, Sperren und Entsperren (Fingerabdruck und Passwort), Einstellungen, Synchronisation (neue und abgelehnte Version), Quellenwechsel, Offline-Modus, Autofill-Auswahl (auch bei gesperrtem Start und mit Phishing-Warnung, getestet in einer WebView mit echter Web-Domain), Benachrichtigung, Drehen und Prozess-Tod. Nicht getestet: die Autofill-Testseite im Browser.
+Grundlage sind `ANFORDERUNGEN.md` und der UI-Entwurf (Link in Abschnitt 13). Alle Module sind fertig, `:app` ist vollständig verdrahtet. Der Ende-zu-Ende-Test im Emulator gegen Samba in Docker ist durchgeführt, die dabei gefundenen Fehler sind behoben. Geprüft wurden Einrichtung, Liste, Detail und Kopieren, Sperren und Entsperren (Fingerabdruck und Passwort), Einstellungen, Synchronisation (neue und abgelehnte Version), Quellenwechsel, Offline-Modus, Autofill-Auswahl (auch bei gesperrtem Start und mit Phishing-Warnung, getestet in einer WebView mit echter Web-Domain), Benachrichtigung, Drehen und Prozess-Tod. Die Autofill-Testseite im Browser ist am 07.11.2026 auch auf dem A55 bestanden (siehe unten).
 
 Der erste Test mit einem Debug-APK auf dem echten Samsung Galaxy A55 ist erfolgt. Daraus sind Änderungen entstanden: Snackbars liegen über der 3-Tasten-Navigationsleiste. Der Synchronisationsstatus zeigt "Aktuell" nur, wenn die geöffnete Version von der Freigabe stammt und kein Synchronisationsproblem vermerkt ist, sonst "Offline-Kopie" mit Grund. Überflüssige Hilfetexte sind entfernt. Das Autofill-Fenster zeigt den App-Namen (Paketname darunter). Der Button heißt "Biometrische Daten nutzen". Das Passwort lässt sich im Detail anzeigen (Auge, wird beim Verlassen, Sperren und Stoppen wieder verborgen und überschrieben). Die Tastatur wird nach "Entsperren" und "Verbinden" ausgeblendet. Das gespeicherte SMB-Passwort dient nur noch der Synchronisation, bei Quellenwechsel muss es immer neu eingegeben werden (die Wiederverwendung ist entfernt). Die `SyncEngine` setzt nur eine bestätigt geöffnete Version auf "SHARE". Zeilenenden sind auf LF vereinheitlicht.
 
@@ -56,13 +56,17 @@ Prüfungen auf Pull Requests: `.github/workflows/pr-source.yml` (Job und Check `
 
 ## Nächste Schritte
 
-1. Die Release-APK 0.2.0.6 (erstes Release über das Branch-Modell, am 07.11.2026 veröffentlicht, Signatur gegen das Zertifikat von 0.1.0.5 geprüft) aus den GitHub-Releases auf dem A55 installieren. Der Debug-Build ist mit einem anderen Schlüssel signiert und muss vorher einmal deinstalliert werden, die Dev-App kann bleiben.
-2. Weitere Tests auf dem A55 gegen das echte NAS: Autofill im Browser (Brave) mit `autofill/testpages/login-steps.html`, Biometrie-Dialog im Autofill-Fenster, Passwortpuffer (SE-04), TalkBack.
-3. Die drei Langzeitprüfungen der Dateiquelle auf dem A55 (4-Stunden-Job ohne Netz, Berechtigung nach Neustart des Handys, Berechtigung und URI nach dem Ersetzen durch Syncthing).
+Die Release-APK 0.2.0.6 ist am 07.11.2026 auf dem A55 installiert (Debug-Build vorher deinstalliert). Dort sind am selben Tag gegen das echte NAS bestanden (bestätigt vom Projektinhaber): Autofill im Browser (Brave) mit `autofill/testpages/login-steps.html`, Biometrie-Dialog im Autofill-Fenster (bricht die Anfrage nicht ab), Löschen des Passwortpuffers (SE-04) nach dem Verlassen des Eingabefelds und TalkBack mit den Einrichtungs- und Suchfeldern.
+
+Nach Entscheidung des Projektinhabers ("irgendwann") bleiben nur noch die drei Langzeitprüfungen der Dateiquelle auf dem A55:
+
+1. 4-Stunden-Job ohne Netz unter der Akku-Optimierung von One UI.
+2. Berechtigung nach Neustart des Handys.
+3. Berechtigung und URI nach dem Ersetzen durch Syncthing.
 
 ## Offene Punkte
 
-- Dateiquelle, Langzeitpunkte nur auf dem echten A55 prüfbar (die übrigen A55-Punkte hat der Projektinhaber am 07.11.2026 als bestanden gemeldet):
+- Dateiquelle, Langzeitpunkte nur auf dem echten A55 prüfbar (Autofill-Testseite in Brave, Biometrie-Dialog im Autofill-Fenster, Passwortpuffer SE-04 und TalkBack sind mit der Release 0.2.0.6 am 07.11.2026 auf dem A55 bestanden, bestätigt vom Projektinhaber):
   - Syncthing: Bleibt die URI stabil, und überlebt die Berechtigung das Ersetzen der Datei?
   - Der 4-Stunden-Job ohne Netz unter der Akku-Optimierung von One UI.
   - Wird die gespeicherte Berechtigung zuverlässig erkannt? Der URI-Text der gewählten Datei muss dem Eintrag in `persistedUriPermissions` entsprechen, auch nach einem Neustart des Handys und nachdem Syncthing die Datei ersetzt hat.
@@ -71,7 +75,5 @@ Prüfungen auf Pull Requests: `.github/workflows/pr-source.yml` (Job und Check `
 - kotpass: geschützte Werte und Argon2-Hook nur per Reflection erreichbar (Tests schlagen bei einem Update fehl).
 - R8 ist seit 03.11.2026 für den Release-Build an (Verkleinern und Optimieren, ohne Umbenennen: `-dontobfuscate`), die Release-APK ist dadurch von 34,5 auf 6,1 MB geschrumpft. Die Keep-Regeln stehen beim jeweiligen Modul: `kdbx` (kotpass), `smb` (smbj-Ereignisbus mbassador), `platform` (argon2kt). Die Unit-Tests laufen ohne R8, deshalb nach Updates dieser Bibliotheken die Release-APK im Emulator prüfen. Zeilennummern in Stacktraces sind ohne `mapping.txt` nicht exakt; die Datei wird bisher nicht pro Release aufbewahrt. Weitere Ersparnis wäre mit ABI-Splits möglich (argon2 liegt für 4 ABIs bei).
 - SE-09 (Sperren bei Bildschirm aus) bewusst zurückgestellt.
-- TalkBack mit den Einrichtungs- und Suchfeldern (neu gesetzte Semantik) ist auf einem Gerät noch nicht getestet.
-- Gerätetests auf dem A55 offen für: Biometrie-Dialog im Autofill-Fenster darf die Anfrage nicht abbrechen (im Emulator am 03.11.2026 bestanden); Löschen des Passwortpuffers (SE-04) nach dem Verlassen des Eingabefelds.
-- Autofill-Testseite im Browser: im Emulator mit Brave 1.98 getestet (03.11.2026, inklusive Phishing-Warnung und gesperrtem Start), auf dem A55 noch offen. Chrome im Emulator hat keine Option für fremde Autofill-Dienste.
+- Autofill-Testseite im Browser: im Emulator mit Brave 1.98 getestet (03.11.2026, inklusive Phishing-Warnung und gesperrtem Start), auf dem A55 am 07.11.2026 bestanden. Chrome im Emulator hat keine Option für fremde Autofill-Dienste.
 - Testumgebung Emulator: Samba-Container `kpm-e2e-samba` (Image dockurr/samba, Host-Port 14460, im Emulator 10.0.2.2:14460, Benutzer wie in `SambaContainer.kt`). Das AVD `kpm_api36` hat eine Bildschirmsperre mit PIN: Nach einem Kaltstart bleibt der Benutzer gesperrt und die App stürzt beim Start ab, bis der Bildschirm einmal entsperrt wurde (Gerätetests brauchen einen entsperrten Emulator).
