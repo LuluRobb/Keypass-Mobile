@@ -13,6 +13,7 @@ import de.lulurobb.keypassmobile.R
 import de.lulurobb.keypassmobile.state.AppController
 import de.lulurobb.keypassmobile.state.AppScreen
 import de.lulurobb.keypassmobile.state.FingerprintPrompter
+import de.lulurobb.keypassmobile.ui.about.AboutRoute
 import de.lulurobb.keypassmobile.ui.components.BusyOverlay
 import de.lulurobb.keypassmobile.ui.detail.DetailRoute
 import de.lulurobb.keypassmobile.ui.dialogs.OlderVersionDialog
@@ -29,8 +30,8 @@ import de.lulurobb.keypassmobile.ui.unlock.UnlockRoute
 /**
  * The screen of [AppController.screen] with its route composable. Every screen shares the
  * messages of the controller. [resumed] is true while the activity is in the foreground.
- * The system pages are activity-only, so the activity passes them in. [onExit] is system
- * back at a root screen (the activity moves the task to the back).
+ * The system pages and the links of the About screen are activity-only, so the activity passes them in.
+ * [onExit] is system back at a root screen (the activity moves the task to the back).
  *
  * On top of every screen: "Lese Datei ..." while a picked file is checked and saved (back does nothing)
  * and the "Ältere Version" dialog of a picked file. The action of a banner or status button
@@ -45,6 +46,7 @@ fun AppRoot(
     onOpenAutofillSettings: () -> Unit,
     onRequestNotifications: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
+    onOpenLink: (String) -> Unit,
     onExit: () -> Unit,
 ) {
     val screen by controller.screen.collectAsState()
@@ -53,6 +55,8 @@ fun AppRoot(
     val messages = controller.messages
     val back: () -> Unit = { if (!controller.onBack()) onExit() }
     val repick: () -> Unit = controller.filePick::repickAfterError
+    // The settings keep their scroll position while "Über KeyPass Mobile" or "Quelle verwalten" is on top.
+    val settingsState = rememberSettingsStateHolder(screen.route)
     // Registered first, so the BackHandlers of the source flow routes (enabled) take precedence.
     BackHandler(onBack = back)
     Box(Modifier.fillMaxSize()) {
@@ -102,16 +106,22 @@ fun AppRoot(
                 DetailRoute(current.model, messages, onBack = back)
             }
             is AppScreen.Settings -> key(current.model) {
-                SettingsRoute(
-                    model = current.model,
-                    messages = messages,
-                    onBack = back,
-                    onEditSource = controller::editSource,
-                    onOpenAutofillSettings = onOpenAutofillSettings,
-                    onOpenNotificationSettings = onOpenNotificationSettings,
-                    onSourceAction = controller::onSourceAction,
-                    onMessageAction = repick,
-                )
+                settingsState.SaveableStateProvider(SettingsStateKey) {
+                    SettingsRoute(
+                        model = current.model,
+                        messages = messages,
+                        onBack = back,
+                        onEditSource = controller::editSource,
+                        onOpenAutofillSettings = onOpenAutofillSettings,
+                        onOpenNotificationSettings = onOpenNotificationSettings,
+                        onOpenAbout = controller::openAbout,
+                        onSourceAction = controller::onSourceAction,
+                        onMessageAction = repick,
+                    )
+                }
+            }
+            is AppScreen.About -> key(current.model) {
+                AboutRoute(current.model, messages, onBack = back, onOpenLink = onOpenLink)
             }
         }
         if (busy) BusyOverlay(stringResource(R.string.pick_reading))

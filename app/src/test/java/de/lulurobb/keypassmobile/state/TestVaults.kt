@@ -10,6 +10,8 @@ import de.lulurobb.keypassmobile.model.VaultEntry
 import de.lulurobb.keypassmobile.model.VaultSecrets
 import de.lulurobb.keypassmobile.platform.session.ServerChange
 import de.lulurobb.keypassmobile.platform.session.SyncInfo
+import de.lulurobb.keypassmobile.ui.about.AboutInfo
+import de.lulurobb.keypassmobile.ui.about.BuildVariant
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -73,6 +75,20 @@ fun testServerChange(
 ) = ServerChange(host, rememberedGuid, rememberedName, newGuid, newName)
 
 /** Sync info with defaults for "unlocked, version of the share open, no problem". */
+/** About facts of a CI build on a Pixel; tests change what they check with copy(). */
+fun testAboutInfo(versionName: String = "0.1.0-test") = AboutInfo(
+    versionName = versionName,
+    versionCode = 7,
+    variant = BuildVariant.Release,
+    packageName = "de.lulurobb.keypassmobile",
+    commit = "0123456789abcdef0123456789abcdef01234567",
+    buildTime = Instant.parse("2026-11-07T12:30:00Z"),
+    androidRelease = "16",
+    apiLevel = 36,
+    manufacturer = "Google",
+    model = "Pixel 9",
+)
+
 fun testSyncInfo(
     openedVersion: OpenedVersion? = OpenedVersion.SHARE,
     lastSuccessfulSync: Instant? = Instant.parse("2026-11-01T10:00:00Z"),

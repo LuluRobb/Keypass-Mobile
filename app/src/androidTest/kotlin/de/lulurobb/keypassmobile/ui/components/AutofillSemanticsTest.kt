@@ -28,8 +28,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -49,6 +51,13 @@ class AutofillSemanticsTest {
 
     @get:Rule
     val rule = createComposeRule()
+
+    // After an adb key event the emulator stays in non-touch mode; Compose then takes focus back
+    // after clearFocus and imeActionDoneClearsFocus fails. The tests must not depend on that.
+    @Before
+    fun useTouchMode() {
+        InstrumentationRegistry.getInstrumentation().setInTouchMode(true)
+    }
 
     // OnAutofillText is deprecated in favor of OnFillData but still reported by older code paths.
     @Suppress("DEPRECATION")

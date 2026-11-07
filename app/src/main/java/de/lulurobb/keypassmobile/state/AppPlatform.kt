@@ -19,6 +19,7 @@ import de.lulurobb.keypassmobile.platform.setup.FileSourceSetup
 import de.lulurobb.keypassmobile.platform.setup.FolderResult
 import de.lulurobb.keypassmobile.platform.setup.OlderVersion
 import de.lulurobb.keypassmobile.platform.setup.ServerAddress
+import de.lulurobb.keypassmobile.ui.about.AboutInfo
 import kotlinx.coroutines.flow.StateFlow
 import java.io.Closeable
 import java.time.Instant
@@ -49,8 +50,11 @@ interface AppPlatform {
      */
     val lastSyncReport: StateFlow<SyncReport?>
 
-    /** versionName of the app for the settings footer. */
+    /** versionName of the app for the version line of the settings row "Über KeyPass Mobile". */
     val versionName: String
+
+    /** App and device facts for the About screen. The same object every time, so the screen keeps its identity. */
+    val aboutInfo: AboutInfo
 
     /** What the unlock screen offers first. Deletes the stored value when the password is due. */
     suspend fun unlockOffer(): UnlockOffer

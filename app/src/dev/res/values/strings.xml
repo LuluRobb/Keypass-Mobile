@@ -11,7 +11,7 @@
     <string name="system_autofill_done">KeyPass Dev ist der Autofill-Dienst.</string>
     <string name="system_notifications_text">Solange die App entsperrt ist, zeigt sie „KeyPass Dev entsperrt“ mit dem Button „Sperren“. So siehst du immer, ob sie offen ist.</string>
     <string name="settings_autofill_on">KeyPass Dev ist ausgewählt.</string>
-    <string name="settings_footer">KeyPass Dev %1$s</string>
+    <string name="settings_about">Über KeyPass Dev</string>
     <string name="picker_not_set_up">KeyPass Dev ist noch nicht eingerichtet.</string>
 
     <!-- :autofill -->

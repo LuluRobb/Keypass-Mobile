@@ -8,11 +8,14 @@ import android.graphics.RectF
 import de.lulurobb.keypassmobile.model.EntrySection
 import de.lulurobb.keypassmobile.model.FillTarget
 import de.lulurobb.keypassmobile.model.VaultEntry
+import de.lulurobb.keypassmobile.ui.about.AboutInfo
+import de.lulurobb.keypassmobile.ui.about.BuildVariant
 import de.lulurobb.keypassmobile.ui.common.displayHost
 import de.lulurobb.keypassmobile.ui.setup.KdbxFile
 import de.lulurobb.keypassmobile.ui.setup.ShareItem
 import java.io.ByteArrayOutputStream
 import java.text.Collator
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.util.Locale
@@ -24,6 +27,20 @@ import java.util.UUID
  * PNG, so the gallery runs through the same decode path as real KDBX icons.
  */
 internal object FakeData {
+
+    /** About screen of a CI release build on a phone. */
+    val about = AboutInfo(
+        versionName = "0.3.0.7",
+        versionCode = 7,
+        variant = BuildVariant.Release,
+        packageName = "de.lulurobb.keypassmobile",
+        commit = "9f3c2a1b7d4e5f60718293a4b5c6d7e8f9012345",
+        buildTime = Instant.parse("2026-11-07T12:30:00Z"),
+        androidRelease = "16",
+        apiLevel = 36,
+        manufacturer = "samsung",
+        model = "SM-A556B",
+    )
 
     const val ROOT = "Passwörter"
     const val FILE = "Passwörter.kdbx"

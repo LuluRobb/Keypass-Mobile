@@ -3,6 +3,7 @@ package de.lulurobb.keypassmobile
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -23,6 +24,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import de.lulurobb.keypassmobile.platform.KpmPlatform
 import de.lulurobb.keypassmobile.state.AppViewModel
 import de.lulurobb.keypassmobile.ui.AppRoot
+import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.setup.OpenKdbxDocument
 import de.lulurobb.keypassmobile.ui.theme.KeyPassTheme
 import kotlinx.coroutines.launch
@@ -75,6 +77,7 @@ class MainActivity : ComponentActivity() {
                     onOpenAutofillSettings = ::openAutofillSettings,
                     onRequestNotifications = ::requestNotifications,
                     onOpenNotificationSettings = ::openNotificationSettings,
+                    onOpenLink = ::openLink,
                     onExit = { moveTaskToBack(true) },
                 )
             }
@@ -150,6 +153,15 @@ class MainActivity : ComponentActivity() {
     private fun openAutofillSettings() = start(vm.system.autofillSettingsIntent())
 
     private fun openNotificationSettings() = start(vm.system.notificationSettingsIntent())
+
+    /** Opens a web link in the browser; the snackbar says so when no app can open it. */
+    private fun openLink(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (_: ActivityNotFoundException) {
+            vm.controller.messages.post(UiMessage.NoBrowser)
+        }
+    }
 
     /** Asks for the permission; when it is (still) not enough, the notification settings page opens. */
     private fun requestNotifications() {

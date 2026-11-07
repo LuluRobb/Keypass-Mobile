@@ -5,6 +5,7 @@ import de.lulurobb.keypassmobile.platform.session.SyncReport
 import de.lulurobb.keypassmobile.platform.session.SyncResult
 import de.lulurobb.keypassmobile.platform.session.SyncTrigger
 import de.lulurobb.keypassmobile.platform.settings.SourceKind
+import de.lulurobb.keypassmobile.ui.about.AboutInfo
 import de.lulurobb.keypassmobile.ui.common.SourceAction
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.detail.EntryDetailModel
@@ -48,6 +49,11 @@ sealed interface AppScreen {
 
     class Settings(override val model: SettingsModel) : AppScreen {
         override val route: AppRoute = AppRoute.Settings
+    }
+
+    /** The facts are fixed for the running app, so [AboutInfo] itself is the model (no state holder, no scope). */
+    class About(override val model: AboutInfo) : AppScreen {
+        override val route: AppRoute = AppRoute.About
     }
 }
 
@@ -153,6 +159,11 @@ class AppController(
     /** Settings button of the list. */
     fun openSettings() = act {
         if (route == AppRoute.EntryList) stack += InAppScreen.Settings
+    }
+
+    /** "Über KeyPass Mobile" row of the settings. */
+    fun openAbout() = act {
+        if (route == AppRoute.Settings) stack += InAppScreen.About
     }
 
     /** "Quelle verwalten" in the settings: the source choice. */
@@ -268,6 +279,7 @@ class AppController(
         AppRoute.EntryList -> false
         is AppRoute.EntryDetail,
         AppRoute.Settings,
+        AppRoute.About,
         -> {
             stack.removeLastOrNull()
             true
@@ -450,6 +462,7 @@ class AppController(
         val inApp = route is AppRoute.EntryList ||
             route is AppRoute.EntryDetail ||
             route is AppRoute.Settings ||
+            route is AppRoute.About ||
             (route is AppRoute.SourceFlow && route.mode == SourceFlowMode.ChangeUnlocked)
         if (!inApp) {
             discardInApp()
@@ -488,6 +501,7 @@ class AppController(
         AppRoute.EntryList -> AppScreen.EntryList(checkNotNull(listModel).model)
         is AppRoute.EntryDetail -> AppScreen.EntryDetail(route, checkNotNull(detailModels[route.id]).model)
         AppRoute.Settings -> AppScreen.Settings(checkNotNull(settingsModel).model)
+        AppRoute.About -> AppScreen.About(platform.aboutInfo)
     }
 
     /** The unlock model; built again when the mode changed (setup completed). It stays until a lock finds it stale. */

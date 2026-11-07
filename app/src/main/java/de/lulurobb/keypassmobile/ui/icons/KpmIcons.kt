@@ -48,6 +48,23 @@ object KpmIcons {
     @DrawableRes val ExpandLess = R.drawable.ic_expand_less
     @DrawableRes val Notifications = R.drawable.ic_notifications
     @DrawableRes val Keyboard = R.drawable.ic_keyboard
+
+    /** Trailing icon of a row that leaves the app for the browser. */
+    @DrawableRes val OpenInNew = R.drawable.ic_open_in_new
+
+    /* Icons of the About screen. */
+    @DrawableRes val Rocket = R.drawable.ic_rocket_launch
+    @DrawableRes val Build = R.drawable.ic_build
+    @DrawableRes val Variant = R.drawable.ic_extension
+    @DrawableRes val Package = R.drawable.ic_package_2
+    @DrawableRes val Commit = R.drawable.ic_commit
+    @DrawableRes val Schedule = R.drawable.ic_schedule
+    @DrawableRes val Person = R.drawable.ic_person
+    @DrawableRes val Code = R.drawable.ic_terminal
+    @DrawableRes val Releases = R.drawable.ic_archive
+    @DrawableRes val ReportProblem = R.drawable.ic_flag
+    @DrawableRes val Android = R.drawable.ic_memory
+    @DrawableRes val Smartphone = R.drawable.ic_smartphone
 }
 
 /** An icon from res/drawable, tinted with the current content color. */

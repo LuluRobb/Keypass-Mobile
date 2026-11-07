@@ -235,6 +235,8 @@ fun SettingsRow(
     onCheckedChange: ((Boolean) -> Unit)? = null,
     enabled: Boolean = true,
     trailing: (@Composable () -> Unit)? = null,
+    /** What TalkBack announces for the tap ("Im Browser öffnen"); only for rows with [onClick]. */
+    onClickLabel: String? = null,
 ) {
     val interaction = when {
         checked != null && onCheckedChange != null -> Modifier.toggleable(
@@ -243,7 +245,7 @@ fun SettingsRow(
             role = Role.Switch,
             onValueChange = onCheckedChange,
         )
-        onClick != null -> Modifier.clickable(enabled = enabled, onClick = onClick)
+        onClick != null -> Modifier.clickable(enabled = enabled, onClickLabel = onClickLabel, onClick = onClick)
         else -> Modifier
     }
     Row(
