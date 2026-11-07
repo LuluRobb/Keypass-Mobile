@@ -1,0 +1,17 @@
+{
+  "uniqueId": "com.google.fonts:material-symbols",
+  "name": "Material Symbols",
+  "description": "Die Symbole der App (Outlined, Gewicht 400) und der Schlüssel im App-Icon, zum Teil angepasst.",
+  "website": "https://fonts.google.com/icons",
+  "developers": [
+    {
+      "name": "Google LLC"
+    }
+  ],
+  "scm": {
+    "url": "https://github.com/google/material-design-icons"
+  },
+  "licenses": [
+    "Apache-2.0"
+  ]
+}

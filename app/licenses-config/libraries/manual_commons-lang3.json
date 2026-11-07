@@ -1,0 +1,18 @@
+{
+  "uniqueId": "org.apache.commons:commons-lang3",
+  "artifactVersion": "3.17.0",
+  "name": "Apache Commons Lang",
+  "description": "Ein kleiner Teil des Quelltexts ist in kotpass enthalten (geändert und gekürzt), kein eigener Download. Die Version steht in der Liste der Fremdbibliotheken von kotpass 0.13.0. Der Hinweis (NOTICE) steht im englischen Original über dem Lizenztext.",
+  "website": "https://commons.apache.org/proper/commons-lang/",
+  "developers": [
+    {
+      "name": "The Apache Software Foundation"
+    }
+  ],
+  "scm": {
+    "url": "https://github.com/apache/commons-lang"
+  },
+  "licenses": [
+    "apache-2.0-commons-lang"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "uniqueId": "org.p-h-c:argon2-reference",
+  "name": "Argon2 (Referenzimplementierung)",
+  "description": "Steckt in der nativen Bibliothek von Argon2Kt. Copyright 2015 Daniel Dinu, Dmitry Khovratovich, Jean-Philippe Aumasson und Samuel Neves. Die Autoren erlauben wahlweise CC0 1.0 oder Apache 2.0, angezeigt wird Apache 2.0. Die Kodierung (encoding.c, Thomas Pornin) und BLAKE2 (Samuel Neves) stehen jeweils unter CC0 1.0.",
+  "website": "https://github.com/P-H-C/phc-winner-argon2",
+  "developers": [
+    {
+      "name": "Daniel Dinu"
+    },
+    {
+      "name": "Dmitry Khovratovich"
+    },
+    {
+      "name": "Jean-Philippe Aumasson"
+    },
+    {
+      "name": "Samuel Neves"
+    },
+    {
+      "name": "Thomas Pornin"
+    }
+  ],
+  "scm": {
+    "url": "https://github.com/P-H-C/phc-winner-argon2"
+  },
+  "licenses": [
+    "Apache-2.0"
+  ]
+}

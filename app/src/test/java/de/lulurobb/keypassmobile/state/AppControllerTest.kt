@@ -361,6 +361,79 @@ class AppControllerTest {
     }
 
     @Test
+    fun `the licenses list and a license page open one after the other and back pops one level`() = runTest {
+        val controller = unlockedController()
+        controller.openSettings()
+        runCurrent()
+        controller.openAbout()
+        runCurrent()
+        controller.openLicenses()
+        runCurrent()
+        assertEquals(AppRoute.Licenses, controller.routeNow)
+        controller.openLicense("com.hierynomus:smbj")
+        runCurrent()
+        assertEquals(AppRoute.LicenseDetail("com.hierynomus:smbj"), controller.routeNow)
+        val detail = controller.screen.value
+        // An update that changes nothing keeps the screen object (no recomposition churn).
+        controller.openLicense("other")
+        runCurrent()
+        assertSame(detail, controller.screen.value)
+
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.Licenses, controller.routeNow)
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.About, controller.routeNow)
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.Settings, controller.routeNow)
+    }
+
+    @Test
+    fun `the licenses open only from the about screen and a license page only from the list`() = runTest {
+        val controller = unlockedController()
+        controller.openLicenses()
+        controller.openLicense("x")
+        runCurrent()
+        assertEquals(AppRoute.EntryList, controller.routeNow)
+
+        controller.openSettings()
+        runCurrent()
+        controller.openLicenses()
+        controller.openLicense("x")
+        runCurrent()
+        assertEquals(AppRoute.Settings, controller.routeNow)
+
+        controller.openAbout()
+        runCurrent()
+        controller.openLicense("x")
+        runCurrent()
+        assertEquals(AppRoute.About, controller.routeNow)
+    }
+
+    @Test
+    fun `a lock clears the licenses pages with the rest of the stack`() = runTest {
+        val controller = unlockedController()
+        controller.openSettings()
+        runCurrent()
+        controller.openAbout()
+        runCurrent()
+        controller.openLicenses()
+        runCurrent()
+        controller.openLicense("com.hierynomus:smbj")
+        runCurrent()
+        assertEquals(AppRoute.LicenseDetail("com.hierynomus:smbj"), controller.routeNow)
+
+        platform.lock()
+        runCurrent()
+        assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
+        platform.sessionFlow.value = unlockedView(vault)
+        runCurrent()
+        assertEquals(AppRoute.EntryList, controller.routeNow)
+    }
+
+    @Test
     fun `a vanished source pops the settings`() = runTest {
         val controller = unlockedController()
         controller.openSettings()

@@ -10,4 +10,6 @@ downloads it at runtime (SE-06).
   The file is included unmodified, with its license header.
 
 To update, download the file again from the URL above, replace it here and
-update the date and version in this README.
+update the date and version in this README. Also update `artifactVersion` in
+`app/licenses-config/libraries/manual_public-suffix-list.json` (the entry of the
+open-source licenses page in the app) to the new list version date.

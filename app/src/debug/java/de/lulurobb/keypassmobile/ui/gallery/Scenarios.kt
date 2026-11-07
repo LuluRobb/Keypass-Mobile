@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import de.lulurobb.keypassmobile.model.FillTarget
 import de.lulurobb.keypassmobile.model.VaultEntry
 import de.lulurobb.keypassmobile.ui.about.AboutInfo
@@ -36,6 +37,11 @@ import de.lulurobb.keypassmobile.ui.dialogs.OtherServerDialog
 import de.lulurobb.keypassmobile.ui.dialogs.OtherServerInfo
 import de.lulurobb.keypassmobile.ui.dialogs.PhishingWarning
 import de.lulurobb.keypassmobile.ui.icons.EntryIcons
+import de.lulurobb.keypassmobile.ui.licenses.LicenseCatalog
+import de.lulurobb.keypassmobile.ui.licenses.LicenseDetailScreen
+import de.lulurobb.keypassmobile.ui.licenses.LicenseListState
+import de.lulurobb.keypassmobile.ui.licenses.LicensesScreen
+import de.lulurobb.keypassmobile.ui.licenses.loadLicenseEntries
 import de.lulurobb.keypassmobile.ui.list.EntryListContent
 import de.lulurobb.keypassmobile.ui.list.EntryListScreen
 import de.lulurobb.keypassmobile.ui.list.EntryListState
@@ -302,6 +308,20 @@ internal object Scenarios {
         },
         Scenario("about-copied", APP, "Über KeyPass: Infos kopiert") { back ->
             AboutDemo(FakeData.about, back, message = UiMessage.InfoCopied)
+        },
+        // The licenses scenarios show the real data of this debug build (the generated JSON).
+        Scenario("licenses", APP, "Open-Source-Lizenzen: Liste") { back -> LicensesDemo(back) },
+        Scenario("licenses-failed", APP, "Open-Source-Lizenzen: Liste nicht ladbar") { back ->
+            LicensesScreen(state = LicenseListState.Failed, onBack = back, onOpen = {})
+        },
+        Scenario("license-apache", APP, "Lizenz: Compose Material3 (Apache 2.0)") { back ->
+            LicenseDetailDemo("androidx.compose.material3:material3-android", back)
+        },
+        Scenario("license-mit", APP, "Lizenz: kotpass (MIT mit Copyright)") { back ->
+            LicenseDetailDemo("app.keemobile:kotpass", back)
+        },
+        Scenario("license-manual", APP, "Lizenz: Public Suffix List (manueller Eintrag, MPL 2.0)") { back ->
+            LicenseDetailDemo("publicsuffix.org:public-suffix-list", back)
         },
 
         Scenario("picker", FILL, "Brave: paypal.com") { back -> PickerDemo(FakeData.webOk, back) },
@@ -592,7 +612,31 @@ private fun AboutDemo(info: AboutInfo, back: () -> Unit, message: UiMessage? = n
         info = info,
         onBack = back,
         onOpenLink = { msg = UiMessage.NoBrowser },
+        onOpenLicenses = {},
         onCopyInfo = { msg = UiMessage.InfoCopied },
+        message = msg,
+        onMessageDismissed = { msg = null },
+    )
+}
+
+@Composable
+private fun LicensesDemo(back: () -> Unit) {
+    val context = LocalContext.current
+    val catalog = remember { LicenseCatalog { loadLicenseEntries(context) } }
+    LaunchedEffect(catalog) { catalog.ensureLoaded() }
+    LicensesScreen(state = catalog.state, onBack = back, onOpen = {})
+}
+
+@Composable
+private fun LicenseDetailDemo(id: String, back: () -> Unit) {
+    val context = LocalContext.current
+    val catalog = remember { LicenseCatalog { loadLicenseEntries(context) } }
+    LaunchedEffect(catalog) { catalog.ensureLoaded() }
+    var msg by remember { mutableStateOf<UiMessage?>(null) }
+    LicenseDetailScreen(
+        entry = catalog.find(id),
+        onBack = back,
+        onOpenLink = { msg = UiMessage.NoBrowser },
         message = msg,
         onMessageDismissed = { msg = null },
     )

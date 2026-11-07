@@ -61,6 +61,7 @@ class AboutScreenTest {
 
     private val links = mutableListOf<String>()
     private val copies = mutableListOf<String>()
+    private var licensesOpened = 0
 
     private fun about(info: AboutInfo, message: UiMessage? = null) {
         rule.setContent {
@@ -69,6 +70,7 @@ class AboutScreenTest {
                     info = info,
                     onBack = {},
                     onOpenLink = { links += it },
+                    onOpenLicenses = { licensesOpened++ },
                     onCopyInfo = { copies += it },
                     message = message,
                 )
@@ -82,7 +84,7 @@ class AboutScreenTest {
     fun releaseBuildShowsGroupsAndFacts() {
         about(release)
         rule.onNodeWithText("Über KeyPass Mobile").assertIsDisplayed()
-        for (heading in listOf("App", "Projekt", "Gerät")) show(heading)
+        for (heading in listOf("App", "Projekt", "Gerät", "Rechtliches")) show(heading)
         // Label and value sit in one node: TalkBack reads them together.
         for ((label, value) in listOf(
             "Version" to "0.3.0",
@@ -128,6 +130,18 @@ class AboutScreenTest {
             ),
             links,
         )
+    }
+
+    @Test
+    fun licensesRowAtTheEndOpensTheLicensesList() {
+        about(release)
+        // Group "Rechtliches" sits after the device facts and before the copy button.
+        show("Rechtliches")
+        rule.onNode(hasText("Open-Source-Lizenzen") and hasText("Bibliotheken und Daten, die in der App stecken"))
+            .performScrollTo().assertHasClickAction().performClick()
+        assertEquals(1, licensesOpened)
+        assertEquals(emptyList<String>(), links)
+        rule.onNodeWithText("Infos kopieren").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -201,7 +215,13 @@ class AboutScreenTest {
         var back = 0
         rule.setContent {
             KeyPassTheme {
-                AboutRoute(info = release, messages = messages, onBack = { back++ }, onOpenLink = { links += it })
+                AboutRoute(
+                    info = release,
+                    messages = messages,
+                    onBack = { back++ },
+                    onOpenLink = { links += it },
+                    onOpenLicenses = { licensesOpened++ },
+                )
             }
         }
         rule.onNodeWithText("Infos kopieren").performScrollTo().performClick()
