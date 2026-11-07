@@ -1,0 +1,38 @@
+# Pull requests into main may only come from the branch development of this repository.
+# main only receives changes that went through development (and its dev builds), and every
+# push to main publishes a release. Used as a required status check of the main ruleset.
+#
+# pull_request_target runs the workflow file of the base branch with a token that is not
+# read-only for forks. That is safe here because the job checks out nothing, runs no code
+# of the pull request, has no permissions, and reads the head branch name only through
+# env: (the name is chosen by the author of the pull request).
+name: PR source
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited]
+
+permissions: {}
+
+jobs:
+  check:
+    name: PR source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check head repository and branch
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          THIS_REPO: ${{ github.repository }}
+        run: |
+          if [ "$HEAD_REPO" != "$THIS_REPO" ]; then
+            echo "::error::Pull requests into main must come from $THIS_REPO, not from a fork ($HEAD_REPO)"
+            exit 1
+          fi
+          if [ "$HEAD_REF" != "development" ]; then
+            echo "::error::Pull requests into main must come from the branch development"
+            exit 1
+          fi
+          echo "OK: source is $THIS_REPO:development"

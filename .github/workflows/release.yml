@@ -60,6 +60,7 @@ jobs:
     name: Build APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    environment: release
     outputs:
       apk-name: ${{ steps.apk.outputs.name }}
       version: ${{ steps.apk.outputs.version }}

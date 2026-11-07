@@ -39,6 +39,17 @@ Weißer Schlüssel (Material Symbols „key“, Apache License 2.0) auf einem Pe
 
 Der Verlauf reicht über den sichtbaren Bereich (18 bis 90 auf der 108er-Fläche), damit beide Farben im maskierten Icon vollständig zu sehen sind.
 
+## Dev-App
+
+Die Dev-App (Build-Typ `dev`, Name "KeyPass Dev", läuft neben der normalen App) hat denselben weißen Schlüssel auf einem grünen Verlauf, damit man beide Icons auf dem Homescreen sofort unterscheidet. Die Farben stehen in `app/src/dev/res/values/colors.xml` und überschreiben nur die beiden Verlaufsfarben. Themed Icon, Benachrichtigung und Autofill-Symbol bleiben wie bei der normalen App.
+
+| | Hex | RGB | Kontrast zu Weiß |
+|---|---|---|---|
+| Start (oben links) | `#1B4D2E` | 27, 77, 46 | 9,8 : 1 |
+| Ende (unten rechts) | `#4A9A3F` | 74, 154, 63 | 3,5 : 1 |
+
+Zum Vergleich Petrol: Ende `#26968A` mit 3,6 : 1. Der Farbton des Endes liegt bei etwa 113 Grad (Petrol: 174 Grad). Die Verlaufsfarben (`ic_launcher_gradient_start` und `_end`) werden nur vom Launcher-Icon verwendet, das Logo in der App selbst ist davon nicht betroffen.
+
 ## Dateien
 
 - `logo.svg`: das Logo in Vollfarbe, 108 x 108, Ebenen `hintergrund` und `vordergrund`

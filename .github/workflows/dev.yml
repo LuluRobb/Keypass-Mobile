@@ -1,0 +1,267 @@
+# Every push to development publishes a signed dev APK for testers.
+# The jobs "Test" and "Build APK" run in parallel; "Publish dev build" only runs when
+# both succeeded.
+#
+# One rolling pre-release with the fixed tag "dev" holds the newest dev build. Its APK
+# always has the same name, so one stable link serves the newest build:
+# https://github.com/LuluRobb/Keypass-Mobile/releases/download/dev/Keypass-Mobile-dev.apk
+# The release is a pre-release and never "Latest", so it does not disturb the release
+# channel of main (see release.yml).
+#
+# The dev app is a separate app (build type "dev" in app/build.gradle.kts): package
+# de.lulurobb.keypassmobile.dev, name "KeyPass Dev", installs next to the normal app.
+# Versioning: the workflow run number N becomes versionCode = N and
+# versionName = <base version>-dev.N (e.g. 0.1.0-dev.7).
+#
+# Secrets (GitHub environment "dev", only "Build APK" gets them): KPM_DEV_KEYSTORE_BASE64
+# (dev.jks as base64), KPM_DEV_KEYSTORE_PASSWORD (store and key password, PKCS12 uses one
+# password for both). Key alias: keypass-mobile-dev. This is a separate key; the release
+# key is never used here.
+name: Dev
+
+on:
+  push:
+    branches: [development]
+
+permissions:
+  contents: read
+
+env:
+  # SHA-256 fingerprint of the dev signing certificate (public, not a secret). "Verify
+  # signature" fails when the APK is signed with anything else. If the dev key is ever
+  # regenerated, update this value; testers then have to reinstall the dev app once.
+  DEV_CERT_SHA256: "9E:5E:75:0D:88:48:D0:52:22:EA:AF:34:53:AE:FB:20:3A:B2:A7:D9:52:E7:D9:09:5E:93:29:32:85:81:C9:77"
+
+jobs:
+  # A newer push cancels a running "Test" or "Build APK" of an older push: nothing is
+  # published at that point, so nothing can break. "Publish dev build" has its own group
+  # and is never cancelled (see there).
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: dev-test
+      cancel-in-progress: true
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java 25
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          # Open-source cache on GitHub Actions cache, not the commercial default.
+          cache-provider: basic
+
+      - name: Run unit tests
+        run: ./gradlew test
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-reports
+          path: "**/build/reports/tests/"
+          retention-days: 7
+
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: dev
+    concurrency:
+      group: dev-build
+      cancel-in-progress: true
+    outputs:
+      version: ${{ steps.apk.outputs.version }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Java 25
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          # Open-source cache on GitHub Actions cache, not the commercial default.
+          cache-provider: basic
+
+      - name: Provide signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KPM_DEV_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KPM_DEV_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Secret KPM_DEV_KEYSTORE_BASE64 is missing"
+            exit 1
+          fi
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Secret KPM_DEV_KEYSTORE_PASSWORD is missing"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/dev.jks"
+
+      - name: Build and sign dev APK
+        env:
+          KPM_DEV_KEYSTORE_FILE: ${{ runner.temp }}/dev.jks
+          KPM_DEV_KEYSTORE_PASSWORD: ${{ secrets.KPM_DEV_KEYSTORE_PASSWORD }}
+          KPM_DEV_KEY_ALIAS: keypass-mobile-dev
+          KPM_DEV_KEY_PASSWORD: ${{ secrets.KPM_DEV_KEYSTORE_PASSWORD }}
+          # Makes missing dev signing values fatal in Gradle: no fallback to the debug key.
+          KPM_REQUIRE_DEV_SIGNING: "true"
+          KPM_BUILD_NUMBER: ${{ github.run_number }}
+        run: ./gradlew :app:assembleDev
+
+      - name: Remove signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/dev.jks"
+
+      - name: Verify signature
+        run: |
+          build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          certs=$("$build_tools/apksigner" verify --print-certs app/build/outputs/apk/dev/app-dev.apk)
+          printf '%s\n' "$certs"
+          if printf '%s\n' "$certs" | grep -q "CN=Android Debug"; then
+            echo "::error::Dev APK is signed with the debug key"
+            exit 1
+          fi
+          # Compare without colons and in lower case; every signer must match the pinned key.
+          expected=$(printf '%s' "$DEV_CERT_SHA256" | tr -d ':' | tr 'A-F' 'a-f')
+          found=$(printf '%s\n' "$certs" | sed -n 's/.*certificate SHA-256 digest: *//p' | tr -d ':' | tr 'A-F' 'a-f' | sort -u)
+          if [ -z "$found" ] || [ "$found" != "$expected" ]; then
+            echo "::error::Dev APK certificate SHA-256 is '$found', expected '$expected' (DEV_CERT_SHA256)"
+            exit 1
+          fi
+          echo "Certificate matches DEV_CERT_SHA256"
+
+      - name: Check version and name APK
+        id: apk
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          apk=app/build/outputs/apk/dev/app-dev.apk
+          build_tools="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
+          badging=$("$build_tools/aapt2" dump badging "$apk")
+          package=$(printf '%s\n' "$badging" | sed -n "s/^package: name='\([^']*\)'.*/\1/p")
+          version=$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionName='\([^']*\)'.*/\1/p")
+          code=$(printf '%s\n' "$badging" | sed -n "s/^package:.* versionCode='\([^']*\)'.*/\1/p")
+          echo "package=$package versionName=$version versionCode=$code"
+          if [ "$package" != "de.lulurobb.keypassmobile.dev" ]; then
+            echo "::error::APK has package '$package', expected de.lulurobb.keypassmobile.dev"
+            exit 1
+          fi
+          if printf '%s\n' "$badging" | grep -q "^application-debuggable"; then
+            echo "::error::Dev APK is debuggable"
+            exit 1
+          fi
+          if [ "$code" != "$BUILD_NUMBER" ] || [[ "$version" != *"-dev.$BUILD_NUMBER" ]]; then
+            echo "::error::APK has versionName '$version' and versionCode '$code', expected <base>-dev.$BUILD_NUMBER and $BUILD_NUMBER"
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$apk" dist/Keypass-Mobile-dev.apk
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Store APK for the release
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apk
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Updates the rolling release "dev" in place, so the stable download link never points
+  # to nothing: the new APK replaces the old asset, title and notes follow, and the tag
+  # "dev" moves last. When the job fails in the middle, the release keeps working and a
+  # re-run of the job completes it. Only when no release exists, it is created.
+  # Concurrent publishes would race on the tag, so this job is never cancelled
+  # (cancel-in-progress: false); further runs wait their turn and GitHub keeps only the
+  # newest waiting one.
+  release:
+    name: Publish dev build
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: dev-publish
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch APK
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: apk
+          path: dist
+
+      - name: Publish dev release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.build.outputs.version }}
+          # Commit messages are user-controlled: only ever used as data, never in the script text.
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          # Exit code 0: the API path exists. 1: HTTP 404. Any other error ends the job.
+          exists() {
+            local out
+            if out=$(gh api "$1" 2>&1); then
+              return 0
+            fi
+            if printf '%s' "$out" | grep -q "HTTP 404"; then
+              return 1
+            fi
+            echo "::error::gh api $1 failed: $out"
+            exit 1
+          }
+
+          # Skip stale runs: a re-run of an old run, or an older run whose successor failed
+          # or was cancelled, must not replace a newer dev build (lower versionCode).
+          head=$(gh api "repos/$GH_REPO/git/ref/heads/development" --jq .object.sha)
+          if [ "$head" != "$GITHUB_SHA" ]; then
+            echo "::notice::Skipped: development is at ${head::7}, this run built ${GITHUB_SHA::7}"
+            exit 0
+          fi
+
+          short_sha="${GITHUB_SHA::7}"
+          subject="${COMMIT_MESSAGE%%$'\n'*}"
+          title="Keypass Mobile Dev $VERSION"
+          printf '%s\n' \
+            "**Version:** $VERSION" \
+            "**Commit:** $short_sha - $subject" \
+            "" \
+            "Testversion, wird neben der normalen App installiert." > notes.md
+
+          # A draft with the tag name (left over from a failed run) is never the public release.
+          for id in $(gh api "repos/$GH_REPO/releases" --paginate \
+              --jq '.[] | select(.draft and .tag_name == "dev") | .id'); do
+            gh api --method DELETE "repos/$GH_REPO/releases/$id"
+          done
+
+          if exists "repos/$GH_REPO/releases/tags/dev"; then
+            gh release upload dev dist/Keypass-Mobile-dev.apk --clobber
+            gh release edit dev --title "$title" --notes-file notes.md --prerelease --latest=false
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/dev" -f sha="$GITHUB_SHA" -F force=true
+          else
+            # A tag without a release (left over from a failed run) must go first,
+            # otherwise the new release would reuse it at the old commit.
+            if exists "repos/$GH_REPO/git/ref/tags/dev"; then
+              gh api --method DELETE "repos/$GH_REPO/git/refs/tags/dev"
+            fi
+            gh release create dev dist/Keypass-Mobile-dev.apk \
+              --target "$GITHUB_SHA" \
+              --title "$title" \
+              --notes-file notes.md \
+              --prerelease \
+              --latest=false
+          fi
