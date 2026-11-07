@@ -56,7 +56,9 @@ if (!hasDevSigning && (requireDevSigning || devSigning.values.any { it != null }
 // Local builds have no build number: versionCode 1, versionName <base>-dev.
 // The "dev" build type keeps the same versionCode but names its version <base>-dev.N
 // (e.g. 0.1.0-dev.7), or <base>-dev without a build number (see androidComponents below).
-val baseVersion = "0.1.0"
+// Bump rule: major (x.0.0) only with the owner's approval, minor (0.x.0) per new feature,
+// patch (0.0.x) per bug fix or small change; once per release cycle, bumped on development.
+val baseVersion = "0.2.0"
 val buildNumber: Int? = providers.environmentVariable("KPM_BUILD_NUMBER").orNull
     ?.takeIf { it.isNotBlank() }
     ?.let { raw ->

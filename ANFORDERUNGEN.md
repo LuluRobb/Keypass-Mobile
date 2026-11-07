@@ -283,10 +283,10 @@ Datei auf dem Handy als Quelle (06.11.2026, Entscheidung des Projektinhabers im 
 
 - Die Datei ist neben der SMB-Freigabe eine zweite Quellenart und steht nicht mehr unter "Später". Die Entscheidungen stehen in DS-08 bis DS-15, EN-07, SY-09 und UI-07 bis UI-09, Cloud-APIs bleiben außerhalb des Umfangs (Abschnitt 11).
 - Der Hinweis in der Liste bei fehlender Datenbank oder verlorenem Zugriff gilt für beide Quellenarten, auch für SMB (UI-09).
-- Offen: Startet die Dateiauswahl auf dem Samsung A55 wirklich am gewünschten Ort (`EXTRA_INITIAL_URI`, DS-10)?
+- Am 07.11.2026 auf dem A55 bestanden (Rückmeldung des Projektinhabers): Startet die Dateiauswahl auf dem Samsung A55 am gewünschten Ort (`EXTRA_INITIAL_URI`, DS-10)?
 - Entschieden: Für den Dialog "Ältere Version" gilt dieselbe UUID der Wurzelgruppe als dieselbe Datenbank, geprüft nur bei einer Datei, die sich mit dem Schlüssel im Arbeitsspeicher öffnen lässt (DS-14).
 - Geprüft: kotpass stellt die UUID der Wurzelgruppe bereit (DS-14), als `DatabaseContent.group.uuid` (kotpass 0.13.0). Fehlt sie in der Datei, bricht kotpass schon beim Lesen ab, der Wert stammt also immer aus der Datei.
-- Umgesetzt, Test offen. Auf dem A55 prüfen:
+- Umgesetzt. Der Test auf dem A55 mit dem Dev-Build 0.1.0-dev.1 ist am 07.11.2026 bestanden (Rückmeldung des Projektinhabers), die Entscheidungen D1 bis D12 (Details in `MVP-STAND.md`) sind am 07.11.2026 vom Projektinhaber bestätigt. Offen bleiben nur die drei Langzeitpunkte (Syncthing-Ersetzen, 4-Stunden-Job ohne Netz, Berechtigung nach Neustart). Die ursprüngliche Prüfliste für das A55:
   - Startet die Dateiauswahl in allen vier Fällen von DS-10 wirklich am gewünschten Ort?
   - Blendet `EXTRA_LOCAL_ONLY` Google Drive, OneDrive und Samsung Cloud aus?
   - Ortstexte und Titel der Wurzeln bei SD-Karte und anderen Anbietern. Eine normale App kann Wurzeltitel und `findDocumentPath` vermutlich nicht abfragen, die Rückfallebene ist dann kein Ortstext.
