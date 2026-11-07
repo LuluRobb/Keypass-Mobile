@@ -13,6 +13,7 @@ import de.lulurobb.keypassmobile.platform.session.SyncTrigger
 import de.lulurobb.keypassmobile.platform.session.UnlockOffer
 import de.lulurobb.keypassmobile.platform.session.UnlockOutcome
 import de.lulurobb.keypassmobile.platform.settings.KpmSettings
+import de.lulurobb.keypassmobile.ui.about.AboutInfo
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +30,7 @@ class FakeAppPlatform(
     session: SessionView = SessionView.Locked(null),
     sync: SyncInfo = testSyncInfo(),
     override val versionName: String = "0.1.0-test",
+    override val aboutInfo: AboutInfo = testAboutInfo(versionName),
 ) : AppPlatform {
 
     data class UnlockCall(val password: String, val enableFingerprint: Boolean?)

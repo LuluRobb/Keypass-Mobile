@@ -20,6 +20,9 @@ sealed interface AppRoute {
     data class EntryDetail(val id: UUID) : AppRoute
 
     data object Settings : AppRoute
+
+    /** "Über KeyPass Mobile", opened from the settings. */
+    data object About : AppRoute
 }
 
 /** What the user opened on top of the entry list while unlocked; the only navigation state kept by hand. */
@@ -27,6 +30,9 @@ sealed interface InAppScreen {
     data class Detail(val id: UUID) : InAppScreen
 
     data object Settings : InAppScreen
+
+    /** "Über KeyPass Mobile" on top of the settings. */
+    data object About : InAppScreen
 
     /**
      * "Quelle verwalten" from the settings or the SMB banner action (a [SourceFlowMode.ChangeUnlocked]
@@ -66,6 +72,7 @@ fun computeRoute(
         null -> AppRoute.EntryList
         is InAppScreen.Detail -> AppRoute.EntryDetail(top.id)
         InAppScreen.Settings -> AppRoute.Settings
+        InAppScreen.About -> AppRoute.About
         is InAppScreen.ChangeSource ->
             AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, changeScreen ?: top.start)
     }

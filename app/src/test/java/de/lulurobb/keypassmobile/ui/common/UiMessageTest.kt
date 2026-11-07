@@ -21,6 +21,8 @@ class UiMessageTest {
             UiMessage.DatabaseLoadedFile,
             UiMessage.SyncFailed,
             UiMessage.Locked,
+            UiMessage.InfoCopied,
+            UiMessage.NoBrowser,
         )
         for (message in others) assertFalse(message.hasAction, "$message")
     }
@@ -33,5 +35,7 @@ class UiMessageTest {
         assertEquals(6_000L, UiMessage.LockedSourceChanged.durationMillis())
         assertEquals(4_000L, UiMessage.SourceSaved.durationMillis())
         assertEquals(4_000L, UiMessage.SyncFileUnchanged.durationMillis())
+        assertEquals(4_000L, UiMessage.InfoCopied.durationMillis())
+        assertEquals(4_000L, UiMessage.NoBrowser.durationMillis())
     }
 }

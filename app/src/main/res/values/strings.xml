@@ -248,7 +248,9 @@
     <string name="settings_notifications">Benachrichtigung „Entsperrt“</string>
     <string name="settings_notifications_on">Erlaubt.</string>
     <string name="settings_notifications_off">Nicht erlaubt. Du siehst nicht, ob die App entsperrt ist.</string>
-    <string name="settings_footer">KeyPass Mobile %1$s</string>
+    <string name="settings_section_about">Info</string>
+    <string name="settings_about">Über KeyPass Mobile</string>
+    <string name="settings_about_version">Version %1$s</string>
     <string name="seconds_short">%d s</string>
     <string name="minutes_short">%d min</string>
     <plurals name="after_days">
@@ -290,9 +292,37 @@
     <string name="other_server_accept">Neuen Server übernehmen</string>
     <string name="other_server_reject">Nicht übernehmen</string>
 
+    <!-- About screen -->
+    <string name="about_group_app">App</string>
+    <string name="about_group_project">Projekt</string>
+    <string name="about_group_device">Gerät</string>
+    <string name="about_version">Version</string>
+    <string name="about_build">Build-Nummer</string>
+    <string name="about_variant">Variante</string>
+    <string name="about_variant_release">Release</string>
+    <string name="about_variant_dev">Dev</string>
+    <string name="about_variant_debug">Debug</string>
+    <string name="about_package">Paketname</string>
+    <string name="about_commit">Commit</string>
+    <string name="about_build_date">Build-Datum</string>
+    <string name="about_local_build">Lokaler Build</string>
+    <string name="about_creator">Ersteller</string>
+    <string name="about_source">Quellcode</string>
+    <string name="about_releases">Releases</string>
+    <string name="about_releases_text">Veröffentlichte Versionen und Änderungen</string>
+    <string name="about_issues">Problem melden</string>
+    <string name="about_issues_text">Fehler oder Wunsch auf GitHub eintragen</string>
+    <string name="about_android">Android-Version</string>
+    <string name="about_android_value">Android %1$s (API %2$d)</string>
+    <string name="about_device">Modell</string>
+    <string name="about_open_in_browser">Im Browser öffnen</string>
+    <string name="about_copy">Infos kopieren</string>
+
     <!-- Snackbar messages -->
     <string name="msg_copied_username">Benutzername kopiert.</string>
     <string name="msg_copied_password">Passwort kopiert.</string>
+    <string name="msg_info_copied">Infos kopiert.</string>
+    <string name="msg_no_browser">Kein Browser gefunden.</string>
     <string name="msg_locked">Gesperrt.</string>
     <string name="msg_locked_no_service">Gesperrt: Die App konnte nicht im Hintergrund weiterlaufen.</string>
     <string name="msg_locked_source_changed">Gesperrt: Neue Datenbank gewählt. Bitte mit ihrem Master-Passwort entsperren.</string>

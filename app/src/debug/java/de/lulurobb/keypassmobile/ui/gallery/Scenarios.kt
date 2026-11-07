@@ -2,6 +2,7 @@ package de.lulurobb.keypassmobile.ui.gallery
 
 import de.lulurobb.keypassmobile.ui.components.rememberSecretInput
 import de.lulurobb.keypassmobile.R
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.res.stringResource
 import de.lulurobb.keypassmobile.platform.settings.SourceKind
 import de.lulurobb.keypassmobile.ui.common.PickFailure
@@ -19,6 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import de.lulurobb.keypassmobile.model.FillTarget
 import de.lulurobb.keypassmobile.model.VaultEntry
+import de.lulurobb.keypassmobile.ui.about.AboutInfo
+import de.lulurobb.keypassmobile.ui.about.AboutScreen
+import de.lulurobb.keypassmobile.ui.about.BuildVariant
 import de.lulurobb.keypassmobile.ui.common.CopiedValue
 import de.lulurobb.keypassmobile.ui.common.UiMessage
 import de.lulurobb.keypassmobile.ui.common.displayHost
@@ -286,6 +290,19 @@ internal object Scenarios {
         Scenario("settings-offline", APP, "Einstellungen: offline, Sync läuft, ohne Fingerabdruck") { back ->
             SettingsDemo(back, offline = true, syncing = true, fingerprint = false)
         },
+        Scenario("settings-bottom", APP, "Einstellungen: unten, Zeile Über KeyPass") { back ->
+            SettingsDemo(back, scrollToEnd = true)
+        },
+        Scenario("about", APP, "Über KeyPass: Release-Build") { back -> AboutDemo(FakeData.about, back) },
+        Scenario("about-dev", APP, "Über KeyPass: Dev-Build") { back ->
+            AboutDemo(FakeData.about.copy(variant = BuildVariant.Dev, versionName = "0.3.0-dev.12", packageName = "de.lulurobb.keypassmobile.dev"), back)
+        },
+        Scenario("about-local", APP, "Über KeyPass: lokaler Build ohne Commit und Datum") { back ->
+            AboutDemo(FakeData.about.copy(variant = BuildVariant.Debug, versionName = "0.3.0-dev", versionCode = 1, commit = null, buildTime = null), back)
+        },
+        Scenario("about-copied", APP, "Über KeyPass: Infos kopiert") { back ->
+            AboutDemo(FakeData.about, back, message = UiMessage.InfoCopied)
+        },
 
         Scenario("picker", FILL, "Brave: paypal.com") { back -> PickerDemo(FakeData.webOk, back) },
         Scenario("picker-phish", FILL, "Brave: gefälschte Seite") { back -> PickerDemo(FakeData.webPhish, back) },
@@ -520,7 +537,10 @@ private fun SettingsDemo(
     file: Boolean = false,
     problem: SourceProblem? = null,
     reason: OfflineReason = OfflineReason.ShareUnreachable,
+    scrollToEnd: Boolean = false,
 ) {
+    val scroll = rememberScrollState()
+    if (scrollToEnd) LaunchedEffect(scroll.maxValue) { scroll.scrollTo(scroll.maxValue) }
     var state by remember {
         mutableStateOf(
             SettingsState(
@@ -546,7 +566,7 @@ private fun SettingsDemo(
                 autoLockSeconds = 120,
                 autofillSelected = true,
                 notificationsAllowed = !offline,
-                versionName = "0.1.0",
+                versionName = "0.3.0.7",
             ),
         )
     }
@@ -560,6 +580,21 @@ private fun SettingsDemo(
         onAutoLockChange = { state = state.copy(autoLockSeconds = it) },
         onOpenAutofillSettings = {},
         onOpenNotificationSettings = { state = state.copy(notificationsAllowed = true) },
+        onOpenAbout = {},
+        scrollState = scroll,
+    )
+}
+
+@Composable
+private fun AboutDemo(info: AboutInfo, back: () -> Unit, message: UiMessage? = null) {
+    var msg by remember { mutableStateOf(message) }
+    AboutScreen(
+        info = info,
+        onBack = back,
+        onOpenLink = { msg = UiMessage.NoBrowser },
+        onCopyInfo = { msg = UiMessage.InfoCopied },
+        message = msg,
+        onMessageDismissed = { msg = null },
     )
 }
 

@@ -3,6 +3,8 @@ package de.lulurobb.keypassmobile.state
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
+import de.lulurobb.keypassmobile.BuildConfig
 import de.lulurobb.keypassmobile.core.settings.IdleTimeout
 import de.lulurobb.keypassmobile.core.settings.PasswordInterval
 import de.lulurobb.keypassmobile.platform.KpmPlatform
@@ -23,6 +25,8 @@ import de.lulurobb.keypassmobile.platform.setup.FolderResult
 import de.lulurobb.keypassmobile.platform.setup.OlderVersion
 import de.lulurobb.keypassmobile.platform.setup.ServerAddress
 import de.lulurobb.keypassmobile.platform.setup.SourceSetup
+import de.lulurobb.keypassmobile.ui.about.AboutInfo
+import de.lulurobb.keypassmobile.ui.about.BuildVariant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -64,6 +68,27 @@ class KpmPlatformAdapter(
         } catch (_: PackageManager.NameNotFoundException) {
             ""
         }
+    }
+
+    override val aboutInfo: AboutInfo by lazy {
+        val (commit, buildTime) = AboutInfo.parseBuildValues(BuildConfig.COMMIT, BuildConfig.BUILD_TIME)
+        val code = try {
+            app.packageManager.getPackageInfo(app.packageName, PackageManager.PackageInfoFlags.of(0)).longVersionCode
+        } catch (_: PackageManager.NameNotFoundException) {
+            0L
+        }
+        AboutInfo(
+            versionName = versionName,
+            versionCode = code,
+            variant = BuildVariant.of(BuildConfig.BUILD_TYPE),
+            packageName = app.packageName,
+            commit = commit,
+            buildTime = buildTime,
+            androidRelease = Build.VERSION.RELEASE,
+            apiLevel = Build.VERSION.SDK_INT,
+            manufacturer = Build.MANUFACTURER,
+            model = Build.MODEL,
+        )
     }
 
     override suspend fun unlockOffer(): UnlockOffer = platform.unlockOffer()

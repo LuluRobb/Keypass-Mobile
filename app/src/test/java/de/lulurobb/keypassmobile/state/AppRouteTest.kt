@@ -107,6 +107,7 @@ class AppRouteTest {
     fun `the top of the stack decides`() {
         assertEquals(AppRoute.EntryDetail(id), route(unlocked = true, stack = listOf(InAppScreen.Detail(id))))
         assertEquals(AppRoute.Settings, route(unlocked = true, stack = listOf(InAppScreen.Settings)))
+        assertEquals(AppRoute.About, route(unlocked = true, stack = listOf(InAppScreen.Settings, InAppScreen.About)))
         assertEquals(
             AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Browse),
             route(
@@ -126,6 +127,14 @@ class AppRouteTest {
         assertEquals(
             AppRoute.SourceFlow(SourceFlowMode.ChangeUnlocked, SourceFlowScreen.Server),
             route(unlocked = true, stack = listOf(InAppScreen.ChangeSource(SourceFlowScreen.Server))),
+        )
+    }
+
+    @Test
+    fun `a locked app shows the unlock screen even with the about screen on the stack`() {
+        assertEquals(
+            AppRoute.Unlock(firstRun = false),
+            route(unlocked = false, stack = listOf(InAppScreen.Settings, InAppScreen.About)),
         )
     }
 

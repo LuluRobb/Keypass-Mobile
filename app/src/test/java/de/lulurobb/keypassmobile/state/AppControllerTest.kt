@@ -309,6 +309,58 @@ class AppControllerTest {
     }
 
     @Test
+    fun `the about screen opens from the settings and back returns to them`() = runTest {
+        val controller = unlockedController()
+        controller.openSettings()
+        runCurrent()
+        val settings = controller.screen.value.model
+        controller.openAbout()
+        runCurrent()
+        assertEquals(AppRoute.About, controller.routeNow)
+        assertSame(platform.aboutInfo, controller.screen.value.model)
+
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.Settings, controller.routeNow)
+        // The settings model lived on below the about screen.
+        assertSame(settings, controller.screen.value.model)
+        assertTrue(controller.onBack())
+        runCurrent()
+        assertEquals(AppRoute.EntryList, controller.routeNow)
+    }
+
+    @Test
+    fun `the about screen opens only from the settings`() = runTest {
+        val controller = unlockedController()
+        controller.openAbout()
+        runCurrent()
+        assertEquals(AppRoute.EntryList, controller.routeNow)
+
+        controller.openEntry(entryId)
+        runCurrent()
+        controller.openAbout()
+        runCurrent()
+        assertEquals(AppRoute.EntryDetail(entryId), controller.routeNow)
+    }
+
+    @Test
+    fun `a lock closes the about screen with the rest of the stack`() = runTest {
+        val controller = unlockedController()
+        controller.openSettings()
+        runCurrent()
+        controller.openAbout()
+        runCurrent()
+        assertEquals(AppRoute.About, controller.routeNow)
+
+        platform.lock()
+        runCurrent()
+        assertEquals(AppRoute.Unlock(firstRun = false), controller.routeNow)
+        platform.sessionFlow.value = unlockedView(vault)
+        runCurrent()
+        assertEquals(AppRoute.EntryList, controller.routeNow)
+    }
+
+    @Test
     fun `a vanished source pops the settings`() = runTest {
         val controller = unlockedController()
         controller.openSettings()

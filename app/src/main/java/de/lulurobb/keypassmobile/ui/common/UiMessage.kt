@@ -38,6 +38,12 @@ import kotlinx.coroutines.delay
 sealed interface UiMessage {
     /** A username or password was copied (AF-09). The app never clears the clipboard. */
     data class Copied(val value: CopiedValue) : UiMessage
+
+    /** "Infos kopieren" of the About screen: the app and device summary is on the clipboard. */
+    data object InfoCopied : UiMessage
+
+    /** A link of the About screen found no app that opens it. */
+    data object NoBrowser : UiMessage
     data object Locked : UiMessage
     /** Locked because the foreground service was refused (SE-03); unlock again with the app in front. */
     data object LockedNoService : UiMessage
@@ -110,6 +116,8 @@ fun UiMessage.text(): String = when (this) {
     is UiMessage.Copied -> stringResource(
         if (value == CopiedValue.Username) R.string.msg_copied_username else R.string.msg_copied_password,
     )
+    UiMessage.InfoCopied -> stringResource(R.string.msg_info_copied)
+    UiMessage.NoBrowser -> stringResource(R.string.msg_no_browser)
     UiMessage.Locked -> stringResource(R.string.msg_locked)
     UiMessage.LockedNoService -> stringResource(R.string.msg_locked_no_service)
     UiMessage.LockedSourceChanged -> stringResource(R.string.msg_locked_source_changed)

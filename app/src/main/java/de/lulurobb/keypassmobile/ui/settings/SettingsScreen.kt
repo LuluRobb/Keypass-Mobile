@@ -1,13 +1,16 @@
 package de.lulurobb.keypassmobile.ui.settings
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -109,12 +112,15 @@ fun SettingsScreen(
     onAutoLockChange: (Int) -> Unit,
     onOpenAutofillSettings: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
+    onOpenAbout: () -> Unit,
     modifier: Modifier = Modifier,
     /** Fix button of the sync status for a source problem (UI-09). */
     onSourceAction: (SourceAction) -> Unit = {},
     message: UiMessage? = null,
     onMessageDismissed: () -> Unit = {},
     onMessageAction: () -> Unit = {},
+    /** Scroll position; the debug gallery passes its own to show the bottom. */
+    scrollState: ScrollState = rememberScrollState(),
 ) {
     val scheme = MaterialTheme.colorScheme
     Scaffold(
@@ -142,7 +148,7 @@ fun SettingsScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues()),
         ) {
             SectionLabel(stringResource(R.string.settings_section_source), topPadding = 8.dp)
@@ -263,12 +269,15 @@ fun SettingsScreen(
                 trailing = { KpmIcon(KpmIcons.ChevronRight, null, tint = scheme.onSurfaceVariant) },
             )
 
-            Text(
-                stringResource(R.string.settings_footer, state.versionName),
-                modifier = Modifier.padding(horizontal = ScreenPadding).padding(top = 28.dp, bottom = 32.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onSurfaceVariant,
+            SectionLabel(stringResource(R.string.settings_section_about))
+            SettingsRow(
+                icon = KpmIcons.Info,
+                title = stringResource(R.string.settings_about),
+                sublines = listOf(SettingsSubline(stringResource(R.string.settings_about_version, state.versionName))),
+                onClick = onOpenAbout,
+                trailing = { KpmIcon(KpmIcons.ChevronRight, null, tint = scheme.onSurfaceVariant) },
             )
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

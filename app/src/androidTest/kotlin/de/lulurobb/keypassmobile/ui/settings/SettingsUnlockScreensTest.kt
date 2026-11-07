@@ -48,6 +48,7 @@ class SettingsUnlockScreensTest {
     private val file = SourceEntry.File("Passwoerter.kdbx", "Interner Speicher / Syncthing / KeePass")
 
     private var editSource = 0
+    private var aboutOpened = 0
     private val actions = mutableListOf<SourceAction>()
 
     private fun settings(
@@ -80,6 +81,7 @@ class SettingsUnlockScreensTest {
                     onAutoLockChange = {},
                     onOpenAutofillSettings = {},
                     onOpenNotificationSettings = {},
+                    onOpenAbout = { aboutOpened++ },
                     onSourceAction = { actions += it },
                 )
             }
@@ -104,6 +106,15 @@ class SettingsUnlockScreensTest {
         rule.onNodeWithText("Passwoerter.kdbx").assertIsDisplayed()
         rule.onNodeWithText("Interner Speicher / Syncthing / KeePass").assertIsDisplayed()
         rule.onAllNodesWithText("Benutzer luca").assertCountEquals(0)
+    }
+
+    @Test
+    fun aboutRowAtTheBottomShowsTheVersionAndOpensTheAboutScreen() {
+        settings(smb)
+        rule.onNodeWithText("Über KeyPass Mobile").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Version 0.1.0").assertIsDisplayed()
+        rule.onNodeWithText("Über KeyPass Mobile").performClick()
+        assertEquals(1, aboutOpened)
     }
 
     @Test
@@ -157,6 +168,7 @@ class SettingsUnlockScreensTest {
                     onAutoLockChange = {},
                     onOpenAutofillSettings = {},
                     onOpenNotificationSettings = {},
+                    onOpenAbout = { aboutOpened++ },
                     onSourceAction = {},
                 )
             }

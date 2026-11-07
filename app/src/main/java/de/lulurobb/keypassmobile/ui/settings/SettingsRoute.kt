@@ -19,6 +19,7 @@ fun SettingsRoute(
     onEditSource: () -> Unit,
     onOpenAutofillSettings: () -> Unit,
     onOpenNotificationSettings: () -> Unit,
+    onOpenAbout: () -> Unit,
     onSourceAction: (SourceAction) -> Unit = {},
     onMessageAction: () -> Unit = {},
 ) {
@@ -35,6 +36,7 @@ fun SettingsRoute(
             onAutoLockChange = model::onAutoLockChange,
             onOpenAutofillSettings = onOpenAutofillSettings,
             onOpenNotificationSettings = onOpenNotificationSettings,
+            onOpenAbout = onOpenAbout,
             onSourceAction = onSourceAction,
             message = message,
             onMessageDismissed = messages::dismiss,

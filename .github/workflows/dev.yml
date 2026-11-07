@@ -111,6 +111,10 @@ jobs:
           fi
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/dev.jks"
 
+      - name: Set build time
+        # Shown in the About screen next to the commit (GITHUB_SHA is already set by GitHub).
+        run: echo "KPM_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       - name: Build and sign dev APK
         env:
           KPM_DEV_KEYSTORE_FILE: ${{ runner.temp }}/dev.jks

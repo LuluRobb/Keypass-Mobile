@@ -1,5 +1,7 @@
 // KeyPass Mobile Android app. AGP 9 compiles Kotlin itself (built-in Kotlin),
 // so only the Compose compiler plugin is applied in addition to the Android plugin.
+import java.time.Instant
+import java.time.format.DateTimeParseException
 import java.util.Properties
 
 plugins {
@@ -58,13 +60,37 @@ if (!hasDevSigning && (requireDevSigning || devSigning.values.any { it != null }
 // (e.g. 0.1.0-dev.7), or <base>-dev without a build number (see androidComponents below).
 // Bump rule: major (x.0.0) only with the owner's approval, minor (0.x.0) per new feature,
 // patch (0.0.x) per bug fix or small change; once per release cycle, bumped on development.
-val baseVersion = "0.2.0"
+val baseVersion = "0.3.0"
 val buildNumber: Int? = providers.environmentVariable("KPM_BUILD_NUMBER").orNull
     ?.takeIf { it.isNotBlank() }
     ?.let { raw ->
         raw.toIntOrNull()?.takeIf { it > 0 }
             ?: throw GradleException("KPM_BUILD_NUMBER must be a positive integer, got '$raw'")
     }
+
+// Build info for the About screen. GitHub Actions provides the commit as GITHUB_SHA in every
+// step; the workflows set KPM_BUILD_TIME (UTC, ISO-8601) in the build job. Local builds have
+// neither: both stay empty, so nothing changes from build to build and the app shows
+// "Lokaler Build". No git call and no clock here, which keeps the Gradle task inputs stable.
+val buildCommit: String = providers.environmentVariable("GITHUB_SHA").orNull
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?.also { raw ->
+        if (!Regex("[0-9a-fA-F]{7,64}").matches(raw)) throw GradleException("GITHUB_SHA must be a hex commit id, got '$raw'")
+    }
+    ?.lowercase()
+    .orEmpty()
+val buildTime: String = providers.environmentVariable("KPM_BUILD_TIME").orNull
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?.also { raw ->
+        try {
+            Instant.parse(raw)
+        } catch (e: DateTimeParseException) {
+            throw GradleException("KPM_BUILD_TIME must be an ISO-8601 instant like 2026-11-07T12:00:00Z, got '$raw'")
+        }
+    }
+    .orEmpty()
 
 android {
     namespace = "de.lulurobb.keypassmobile"
@@ -77,6 +103,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = buildNumber ?: 1
         versionName = if (buildNumber != null) "$baseVersion.$buildNumber" else "$baseVersion-dev"
+        // Empty for local builds (see buildCommit above).
+        buildConfigField("String", "COMMIT", "\"$buildCommit\"")
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
     }
 
     signingConfigs {
@@ -130,6 +159,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
